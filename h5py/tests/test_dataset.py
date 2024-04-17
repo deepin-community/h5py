@@ -17,16 +17,20 @@
 """
 
 import pathlib
+import os
 import sys
 import numpy as np
 import platform
 import pytest
+import warnings
 
 from .common import ut, TestCase
 from .data_files import get_data_file_path
 from h5py import File, Group, Dataset
-from h5py._hl.base import is_empty_dataspace
+from h5py._hl.base import is_empty_dataspace, product
 from h5py import h5f, h5t
+from h5py.h5py_warnings import H5pyDeprecationWarning
+from h5py import version
 import h5py
 import h5py._hl.selections as sel
 
@@ -227,7 +231,7 @@ class TestReadDirectly:
             ((5, 7, 9), (6,), np.s_[2, :6, 3], np.s_[:]),
         ])
     def test_read_direct(self, writable_file, source_shape, dest_shape, source_sel, dest_sel):
-        source_values = np.arange(np.product(source_shape), dtype="int64").reshape(source_shape)
+        source_values = np.arange(product(source_shape), dtype="int64").reshape(source_shape)
         dset = writable_file.create_dataset("dset", source_shape, data=source_values)
         arr = np.full(dest_shape, -1, dtype="int64")
         expected = arr.copy()
@@ -276,7 +280,7 @@ class TestWriteDirectly:
         ])
     def test_write_direct(self, writable_file, source_shape, dest_shape, source_sel, dest_sel):
         dset = writable_file.create_dataset('dset', dest_shape, dtype='int32', fillvalue=-1)
-        arr = np.arange(np.product(source_shape)).reshape(source_shape)
+        arr = np.arange(product(source_shape)).reshape(source_shape)
         expected = np.full(dest_shape, -1, dtype='int32')
         expected[dest_sel] = arr[source_sel]
         dset.write_direct(arr, source_sel, dest_sel)
@@ -470,6 +474,25 @@ class TestCreateFillvalue(BaseDataset):
         with self.assertRaises(ValueError):
             dset = self.f.create_dataset('foo', (10,),
                     dtype=[('a', 'i'), ('b', 'f')], fillvalue=42)
+
+
+@pytest.mark.parametrize('dt,expected', [
+    (int, 0),
+    (np.int32, 0),
+    (np.int64, 0),
+    (float, 0.0),
+    (np.float32, 0.0),
+    (np.float64, 0.0),
+    (h5py.string_dtype(encoding='utf-8', length=5), b''),
+    (h5py.string_dtype(encoding='ascii', length=5), b''),
+    (h5py.string_dtype(encoding='utf-8'), b''),
+    (h5py.string_dtype(encoding='ascii'), b''),
+    (h5py.string_dtype(), b''),
+
+])
+def test_get_unset_fill_value(dt, expected, writable_file):
+    dset = writable_file.create_dataset('foo', (10,), dtype=dt)
+    assert dset.fillvalue == expected
 
 
 class TestCreateNamedType(BaseDataset):
@@ -767,7 +790,8 @@ class TestExternal(BaseDataset):
         # create a dataset in an external file and set it
         ext_file = self.mktemp()
         external = [(ext_file, 0, h5f.UNLIMITED)]
-        dset = self.f.create_dataset('foo', shape, dtype=testdata.dtype, external=external)
+        # ${ORIGIN} should be replaced by the parent dir of the HDF5 file
+        dset = self.f.create_dataset('foo', shape, dtype=testdata.dtype, external=external, efile_prefix="${ORIGIN}")
         dset[...] = testdata
 
         assert dset.external is not None
@@ -776,6 +800,40 @@ class TestExternal(BaseDataset):
         with open(ext_file, 'rb') as fid:
             contents = fid.read()
         assert contents == testdata.tobytes()
+
+        efile_prefix = pathlib.Path(dset.id.get_access_plist().get_efile_prefix().decode()).as_posix()
+        parent = pathlib.Path(self.f.filename).parent.as_posix()
+        assert efile_prefix == parent
+
+    def test_contents_efile_prefix(self):
+        """ Create and access an external dataset using an efile_prefix"""
+
+        shape = (6, 100)
+        testdata = np.random.random(shape)
+
+        # create a dataset in an external file and set it
+        ext_file = self.mktemp()
+        # set only the basename, let the efile_prefix do the rest
+        external = [(os.path.basename(ext_file), 0, h5f.UNLIMITED)]
+        dset = self.f.create_dataset('foo', shape, dtype=testdata.dtype, external=external, efile_prefix=os.path.dirname(ext_file))
+        dset[...] = testdata
+
+        assert dset.external is not None
+
+        # verify file's existence, size, and contents
+        with open(ext_file, 'rb') as fid:
+            contents = fid.read()
+        assert contents == testdata.tobytes()
+
+        # check efile_prefix, only for 1.10.0 due to HDFFV-9716
+        if h5py.version.hdf5_version_tuple >= (1,10,0):
+            efile_prefix = pathlib.Path(dset.id.get_access_plist().get_efile_prefix().decode()).as_posix()
+            parent = pathlib.Path(ext_file).parent.as_posix()
+            assert efile_prefix == parent
+
+        dset2 = self.f.require_dataset('foo', shape, testdata.dtype, efile_prefix=os.path.dirname(ext_file))
+        assert dset2.external is not None
+        dset2[()] == testdata
 
     def test_name_str(self):
         """ External argument may be a file name str only """
@@ -996,6 +1054,13 @@ class TestDtype(BaseDataset):
         dset = self.f.create_dataset('foo', (5,), '|S10')
         self.assertEqual(dset.dtype, np.dtype('|S10'))
 
+    def test_dtype_complex32(self):
+        """ Retrieve dtype from complex float16 dataset (gh-2156) """
+        # No native support in numpy as of v1.23.3, so expect compound type.
+        complex32 = np.dtype([('r', np.float16), ('i', np.float16)])
+        dset = self.f.create_dataset('foo', (5,), complex32)
+        self.assertEqual(dset.dtype, complex32)
+
 
 class TestLen(BaseDataset):
 
@@ -1058,6 +1123,15 @@ class TestStrings(BaseDataset):
         string_info = h5py.check_string_dtype(ds.dtype)
         self.assertEqual(string_info.encoding, 'ascii')
 
+    def test_vlen_bytes_fillvalue(self):
+        """ Vlen bytes dataset handles fillvalue """
+        dt = h5py.string_dtype(encoding='ascii')
+        fill_value = b'bar'
+        ds = self.f.create_dataset('x', (100,), dtype=dt, fillvalue=fill_value)
+        self.assertEqual(self.f['x'][0], fill_value)
+        self.assertEqual(self.f['x'].asstr()[0], fill_value.decode())
+        self.assertEqual(self.f['x'].fillvalue, fill_value)
+
     def test_vlen_unicode(self):
         """ Vlen unicode dataset maps to vlen utf-8 in the file """
         dt = h5py.string_dtype()
@@ -1067,6 +1141,15 @@ class TestStrings(BaseDataset):
         self.assertEqual(tid.get_cset(), h5py.h5t.CSET_UTF8)
         string_info = h5py.check_string_dtype(ds.dtype)
         self.assertEqual(string_info.encoding, 'utf-8')
+
+    def test_vlen_unicode_fillvalue(self):
+        """ Vlen unicode dataset handles fillvalue """
+        dt = h5py.string_dtype()
+        fill_value = 'bár'
+        ds = self.f.create_dataset('x', (100,), dtype=dt, fillvalue=fill_value)
+        self.assertEqual(self.f['x'][0], fill_value.encode("utf-8"))
+        self.assertEqual(self.f['x'].asstr()[0], fill_value)
+        self.assertEqual(self.f['x'].fillvalue, fill_value.encode("utf-8"))
 
     def test_fixed_ascii(self):
         """ Fixed-length bytes dataset maps to fixed-length ascii in the file
@@ -1081,6 +1164,15 @@ class TestStrings(BaseDataset):
         string_info = h5py.check_string_dtype(ds.dtype)
         self.assertEqual(string_info.encoding, 'ascii')
         self.assertEqual(string_info.length, 10)
+
+    def test_fixed_bytes_fillvalue(self):
+        """ Vlen bytes dataset handles fillvalue """
+        dt = h5py.string_dtype(encoding='ascii', length=10)
+        fill_value = b'bar'
+        ds = self.f.create_dataset('x', (100,), dtype=dt, fillvalue=fill_value)
+        self.assertEqual(self.f['x'][0], fill_value)
+        self.assertEqual(self.f['x'].asstr()[0], fill_value.decode())
+        self.assertEqual(self.f['x'].fillvalue, fill_value)
 
     def test_fixed_utf8(self):
         dt = h5py.string_dtype(encoding='utf-8', length=5)
@@ -1097,6 +1189,15 @@ class TestStrings(BaseDataset):
             ds[8:10] = np.array([s, s], dtype='U')
 
         np.testing.assert_array_equal(ds[:8], np.array([s.encode('utf-8')] * 8, dtype='S'))
+
+    def test_fixed_utf_8_fillvalue(self):
+        """ Vlen unicode dataset handles fillvalue """
+        dt = h5py.string_dtype(encoding='utf-8', length=10)
+        fill_value = 'bár'.encode("utf-8")
+        ds = self.f.create_dataset('x', (100,), dtype=dt, fillvalue=fill_value)
+        self.assertEqual(self.f['x'][0], fill_value)
+        self.assertEqual(self.f['x'].asstr()[0], fill_value.decode("utf-8"))
+        self.assertEqual(self.f['x'].fillvalue, fill_value)
 
     def test_fixed_unicode(self):
         """ Fixed-length unicode datasets are unsupported (raise TypeError) """
@@ -1154,10 +1255,13 @@ class TestStrings(BaseDataset):
         # len of ds
         self.assertEqual(10, len(ds.asstr()))
 
-
         # Array output
         np.testing.assert_array_equal(
             ds.asstr()[:1], np.array([data], dtype=object)
+        )
+
+        np.testing.assert_array_equal(
+            np.asarray(ds.asstr())[:1], np.array([data], dtype=object)
         )
 
     def test_asstr_fixed(self):
@@ -1277,9 +1381,43 @@ class TestCompound(BaseDataset):
         np.testing.assert_array_equal(
             self.f['test'].fields('x')[:], testdata['x']
         )
+        # Check __array__() method of fields wrapper
+        np.testing.assert_array_equal(
+            np.asarray(self.f['test'].fields(['x', 'y'])), testdata[['x', 'y']]
+        )
+        # Check type conversion of __array__() method
+        dt_int = np.dtype([('x', np.int32)])
+        np.testing.assert_array_equal(
+            np.asarray(self.f['test'].fields(['x']), dtype=dt_int),
+            testdata[['x']].astype(dt_int)
+        )
 
         # Check len() on fields wrapper
         assert len(self.f['test'].fields('x')) == 16
+
+    def test_nested_compound_vlen(self):
+        dt_inner = np.dtype([('a', h5py.vlen_dtype(np.int32)),
+                            ('b', h5py.vlen_dtype(np.int32))])
+
+        dt = np.dtype([('f1', h5py.vlen_dtype(dt_inner)),
+                       ('f2', np.int64)])
+
+        inner1 = (np.array(range(1, 3), dtype=np.int32),
+                  np.array(range(6, 9), dtype=np.int32))
+
+        inner2 = (np.array(range(10, 14), dtype=np.int32),
+                  np.array(range(16, 21), dtype=np.int32))
+
+        data = np.array([(np.array([inner1, inner2], dtype=dt_inner), 2),
+                        (np.array([inner1], dtype=dt_inner), 3)],
+                        dtype=dt)
+
+        self.f["ds"] = data
+        out = self.f["ds"]
+
+        # Specifying check_alignment=False because vlen fields have 8 bytes of padding
+        # because the vlen datatype in hdf5 occupies 16 bytes
+        self.assertArrayEqual(out, data, check_alignment=False)
 
 
 class TestSubarray(BaseDataset):
@@ -1456,15 +1594,6 @@ class TestRegionRefs(BaseDataset):
 class TestAstype(BaseDataset):
     """.astype() wrapper & context manager
     """
-    def test_astype_ctx(self):
-        dset = self.f.create_dataset('x', (100,), dtype='i2')
-        dset[...] = np.arange(100)
-        with dset.astype('f8'):
-            self.assertArrayEqual(dset[...], np.arange(100, dtype='f8'))
-
-        with dset.astype('f4') as f4ds:
-            self.assertArrayEqual(f4ds[...], np.arange(100, dtype='f4'))
-
     def test_astype_wrapper(self):
         dset = self.f.create_dataset('x', (100,), dtype='i2')
         dset[...] = np.arange(100)
@@ -1476,6 +1605,12 @@ class TestAstype(BaseDataset):
         dset = self.f.create_dataset('x', (100,), dtype='i2')
         dset[...] = np.arange(100)
         self.assertEqual(100, len(dset.astype('f4')))
+
+    def test_astype_wrapper_asarray(self):
+        dset = self.f.create_dataset('x', (100,), dtype='i2')
+        dset[...] = np.arange(100)
+        arr = np.asarray(dset.astype('f4'), dtype='i2')
+        self.assertArrayEqual(arr, np.arange(100, dtype='i2'))
 
 
 class TestScalarCompound(BaseDataset):
@@ -1675,6 +1810,38 @@ def test_get_chunk_details():
         assert si.size > 0
 
 
+@ut.skipUnless(h5py.version.hdf5_version_tuple >= (1, 12, 3) or
+               (h5py.version.hdf5_version_tuple >= (1, 10, 10) and h5py.version.hdf5_version_tuple < (1, 10, 99)),
+               "chunk iteration requires  HDF5 1.10.10 and later 1.10, or 1.12.3 and later")
+def test_chunk_iter():
+    """H5Dchunk_iter() for chunk information"""
+    from io import BytesIO
+    buf = BytesIO()
+    with h5py.File(buf, 'w') as f:
+        f.create_dataset('test', shape=(100, 100), chunks=(10, 10), dtype='i4')
+        f['test'][:] = 1
+
+    buf.seek(0)
+    with h5py.File(buf, 'r') as f:
+        dsid = f['test'].id
+
+        num_chunks = dsid.get_num_chunks()
+        assert num_chunks == 100
+        ci = {}
+        for j in range(num_chunks):
+            si = dsid.get_chunk_info(j)
+            ci[si.chunk_offset] = si
+
+        def callback(chunk_info):
+            known = ci[chunk_info.chunk_offset]
+            assert chunk_info.chunk_offset == known.chunk_offset
+            assert chunk_info.filter_mask == known.filter_mask
+            assert chunk_info.byte_offset == known.byte_offset
+            assert chunk_info.size == known.size
+
+        dsid.chunk_iter(callback)
+
+
 def test_empty_shape(writable_file):
     ds = writable_file.create_dataset('empty', dtype='int32')
     assert ds.shape is None
@@ -1726,10 +1893,6 @@ def test_vlen_nullterm():
         assert f["ds1"][0] == b"2009-12-20T10:16:18.662409Z"
 
 
-@pytest.mark.skipif(
-    h5py.version.hdf5_version_tuple < (1, 10, 3),
-    reason="Appears you cannot pass an unknown filter id for HDF5 < 1.10.3"
-)
 def test_allow_unknown_filter(writable_file):
     # apparently 256-511 are reserved for testing purposes
     fake_filter_id = 256
@@ -1738,6 +1901,28 @@ def test_allow_unknown_filter(writable_file):
         allow_unknown_filter=True
     )
     assert str(fake_filter_id) in ds._filters
+
+
+def test_dset_chunk_cache():
+    """Chunk cache configuration for individual datasets."""
+    from io import BytesIO
+    buf = BytesIO()
+    with h5py.File(buf, 'w') as fout:
+        ds = fout.create_dataset(
+            'x', shape=(10, 20), chunks=(5, 4), dtype='i4',
+            rdcc_nbytes=2 * 1024 * 1024, rdcc_w0=0.2, rdcc_nslots=997)
+        ds_chunk_cache = ds.id.get_access_plist().get_chunk_cache()
+        assert fout.id.get_access_plist().get_cache()[1:] != ds_chunk_cache
+        assert ds_chunk_cache == (997, 2 * 1024 * 1024, 0.2)
+
+    buf.seek(0)
+    with h5py.File(buf, 'r') as fin:
+        ds = fin.require_dataset(
+            'x', shape=(10, 20), dtype='i4',
+            rdcc_nbytes=3 * 1024 * 1024, rdcc_w0=0.67, rdcc_nslots=709)
+        ds_chunk_cache = ds.id.get_access_plist().get_chunk_cache()
+        assert fin.id.get_access_plist().get_cache()[1:] != ds_chunk_cache
+        assert ds_chunk_cache == (709, 3 * 1024 * 1024, 0.67)
 
 
 class TestCommutative(BaseDataset):
@@ -1784,3 +1969,25 @@ class TestCommutative(BaseDataset):
         val = float(0.)
         assert (val == dset) == (dset == val)
         assert (val != dset) == (dset != val)
+
+class TestVirtualPrefix(BaseDataset):
+    """
+    Test setting virtual prefix
+    """
+    def test_virtual_prefix_create(self):
+        shape = (100,1)
+        virtual_prefix = "/path/to/virtual"
+        dset = self.f.create_dataset("test", shape, dtype=float,
+                                     data=np.random.rand(*shape),
+                                     virtual_prefix = virtual_prefix)
+
+        virtual_prefix_readback = pathlib.Path(dset.id.get_access_plist().get_virtual_prefix().decode()).as_posix()
+        assert virtual_prefix_readback == virtual_prefix
+
+    def test_virtual_prefix_require(self):
+        virtual_prefix = "/path/to/virtual"
+        dset = self.f.require_dataset('foo', (10, 3), 'f', virtual_prefix = virtual_prefix)
+        virtual_prefix_readback = pathlib.Path(dset.id.get_access_plist().get_virtual_prefix().decode()).as_posix()
+        self.assertEqual(virtual_prefix, virtual_prefix_readback)
+        self.assertIsInstance(dset, Dataset)
+        self.assertEqual(dset.shape, (10, 3))

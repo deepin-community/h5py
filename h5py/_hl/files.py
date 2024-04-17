@@ -24,18 +24,15 @@ from .. import version
 
 mpi = h5.get_config().mpi
 ros3 = h5.get_config().ros3
+direct_vfd = h5.get_config().direct_vfd
 hdf5_version = version.hdf5_version_tuple[0:3]
 
-swmr_support = False
-if hdf5_version >= h5.get_config().swmr_min_hdf5_version:
-    swmr_support = True
+swmr_support = True
 
 
-libver_dict = {'earliest': h5f.LIBVER_EARLIEST, 'latest': h5f.LIBVER_LATEST}
+libver_dict = {'earliest': h5f.LIBVER_EARLIEST, 'latest': h5f.LIBVER_LATEST,
+               'v108': h5f.LIBVER_V18, 'v110': h5f.LIBVER_V110}
 libver_dict_r = dict((y, x) for x, y in libver_dict.items())
-if hdf5_version >= (1, 10, 2):
-    libver_dict.update({'v108': h5f.LIBVER_V18, 'v110': h5f.LIBVER_V110})
-    libver_dict_r.update({h5f.LIBVER_V18: 'v108', h5f.LIBVER_V110: 'v110'})
 
 if hdf5_version >= (1, 11, 4):
     libver_dict.update({'v112': h5f.LIBVER_V112})
@@ -77,6 +74,9 @@ _drivers = {
 if ros3:
     _drivers['ros3'] = lambda plist, **kwargs: plist.set_fapl_ros3(**kwargs)
 
+if direct_vfd:
+    _drivers['direct'] = lambda plist, **kwargs: plist.set_fapl_direct(**kwargs)  # noqa
+
 
 def register_driver(name, set_fapl):
     """Register a custom driver.
@@ -109,7 +109,9 @@ def registered_drivers():
 
 
 def make_fapl(driver, libver, rdcc_nslots, rdcc_nbytes, rdcc_w0, locking,
-              page_buf_size, min_meta_keep, min_raw_keep, **kwds):
+              page_buf_size, min_meta_keep, min_raw_keep,
+              alignment_threshold, alignment_interval, meta_block_size,
+              **kwds):
     """ Set up a file access property list """
     plist = h5p.create(h5p.FILE_ACCESS)
 
@@ -123,6 +125,7 @@ def make_fapl(driver, libver, rdcc_nslots, rdcc_nbytes, rdcc_w0, locking,
         # we default to earliest
         low, high = h5f.LIBVER_EARLIEST, h5f.LIBVER_LATEST
     plist.set_libver_bounds(low, high)
+    plist.set_alignment(alignment_threshold, alignment_interval)
 
     cache_settings = list(plist.get_cache())
     if rdcc_nslots is not None:
@@ -136,10 +139,14 @@ def make_fapl(driver, libver, rdcc_nslots, rdcc_nbytes, rdcc_w0, locking,
     if page_buf_size:
         plist.set_page_buffer_size(int(page_buf_size), int(min_meta_keep),
                                    int(min_raw_keep))
+
+    if meta_block_size is not None:
+        plist.set_meta_block_size(int(meta_block_size))
+
     if locking is not None:
         if hdf5_version < (1, 12, 1) and (hdf5_version[:2] != (1, 10) or hdf5_version[2] < 7):
             raise ValueError(
-                "HDF version >= 1.12.1 or 1.10.x >= 1.10.7 required for file locking.")
+                "HDF5 version >= 1.12.1 or 1.10.x >= 1.10.7 required for file locking.")
 
         if locking in ("false", False):
             plist.set_file_locking(False, ignore_when_disabled=False)
@@ -163,7 +170,15 @@ def make_fapl(driver, libver, rdcc_nslots, rdcc_nbytes, rdcc_w0, locking,
     except KeyError:
         raise ValueError('Unknown driver type "%s"' % driver)
     else:
-        set_fapl(plist, **kwds)
+        if driver == 'ros3':
+            token = kwds.pop('session_token', None)
+            set_fapl(plist, **kwds)
+            if token:
+                if hdf5_version < (1, 14, 2):
+                    raise ValueError('HDF5 >= 1.14.2 required for AWS session token')
+                plist.set_fapl_ros3_token(token)
+        else:
+            set_fapl(plist, **kwds)
 
     return plist
 
@@ -233,6 +248,7 @@ def make_fid(name, mode, userblock_size, fapl, fcpl=None, swmr=False):
         # Not all drivers raise FileNotFoundError (commented those that do not)
         except FileNotFoundError if fapl.get_driver() in (
             h5fd.SEC2,
+            h5fd.DIRECT if direct_vfd else -1,
             # h5fd.STDIO,
             # h5fd.CORE,
             h5fd.FAMILY,
@@ -293,6 +309,8 @@ class File(Group):
                    h5fd.fileobj_driver: 'fileobj'}
         if ros3:
             drivers[h5fd.ROS3D] = 'ros3'
+        if direct_vfd:
+            drivers[h5fd.DIRECT] = 'direct'
         return drivers.get(self.id.get_access_plist().get_driver(), 'unknown')
 
     @property
@@ -318,7 +336,14 @@ class File(Group):
         fcpl = self.id.get_create_plist()
         return fcpl.get_userblock()
 
-    if mpi and hdf5_version >= (1, 8, 9):
+    @property
+    @with_phil
+    def meta_block_size(self):
+        """ Meta block size (in bytes) """
+        fapl = self.id.get_access_plist()
+        return fapl.get_meta_block_size()
+
+    if mpi:
 
         @property
         @with_phil
@@ -343,18 +368,16 @@ class File(Group):
     @with_phil
     def swmr_mode(self, value):
         # pylint: disable=missing-docstring
-        if swmr_support:
-            if value:
-                self.id.start_swmr_write()
-            else:
-                raise ValueError("It is not possible to forcibly switch SWMR mode off.")
+        if value:
+            self.id.start_swmr_write()
         else:
-            raise RuntimeError('SWMR support is not available in HDF5 version {}.{}.{}.'.format(*hdf5_version))
+            raise ValueError("It is not possible to forcibly switch SWMR mode off.")
 
     def __init__(self, name, mode='r', driver=None, libver=None, userblock_size=None, swmr=False,
                  rdcc_nslots=None, rdcc_nbytes=None, rdcc_w0=None, track_order=None,
                  fs_strategy=None, fs_persist=False, fs_threshold=1, fs_page_size=None,
-                 page_buf_size=None, min_meta_keep=0, min_raw_keep=0, locking=None, **kwds):
+                 page_buf_size=None, min_meta_keep=0, min_raw_keep=0, locking=None,
+                 alignment_threshold=1, alignment_interval=1, meta_block_size=None, **kwds):
         """Create a new file object.
 
         See the h5py user guide for a detailed explanation of the options.
@@ -371,7 +394,7 @@ class File(Group):
             a        Read/write if exists, create otherwise
         driver
             Name of the driver to use.  Legal values are None (default,
-            recommended), 'core', 'sec2', 'stdio', 'mpio', 'ros3'.
+            recommended), 'core', 'sec2', 'direct', 'stdio', 'mpio', 'ros3'.
         libver
             Library version bounds.  Supported values: 'earliest', 'v108',
             'v110', 'v112'  and 'latest'. The 'v108', 'v110' and 'v112'
@@ -382,8 +405,8 @@ class File(Group):
         swmr
             Open the file in SWMR read mode. Only used when mode = 'r'.
         rdcc_nbytes
-            Total size of the raw data chunk cache in bytes. The default size
-            is 1024**2 (1 MB) per dataset.
+            Total size of the dataset chunk cache in bytes. The default size
+            is 1024**2 (1 MiB) per dataset. Applies to all datasets unless individually changed.
         rdcc_w0
             The chunk preemption policy for all datasets.  This must be
             between 0 and 1 inclusive and indicates the weighting according to
@@ -395,7 +418,7 @@ class File(Group):
             other chunks.  If your application only reads or writes data once,
             this can be safely set to 1.  Otherwise, this should be set lower
             depending on how often you re-read or re-write the same data.  The
-            default value is 0.75.
+            default value is 0.75. Applies to all datasets unless individually changed.
         rdcc_nslots
             The number of chunk slots in the raw data chunk cache for this
             file. Increasing this value reduces the number of cache collisions,
@@ -404,7 +427,7 @@ class File(Group):
             thumb, this value should be at least 10 times the number of chunks
             that can fit in rdcc_nbytes bytes. For maximum performance, this
             value should be set approximately 100 times that number of
-            chunks. The default value is 521.
+            chunks. The default value is 521. Applies to all datasets unless individually changed.
         track_order
             Track dataset/group/attribute creation order under root group
             if True. If None use global default h5.get_config().track_order.
@@ -442,29 +465,57 @@ class File(Group):
             page_buf_size is set. Default value is zero.
         locking
             The file locking behavior. Defined as:
-            False (or "false")  Disable file locking
-            True (or "true")    Enable file locking
-            "best-effort"       Enable file locking but ignore some errors
-            None                Use HDF5 defaults
-            Warning: The HDF5_USE_FILE_LOCKING environment variable can override
-            this parameter.
+
+            - False (or "false") --  Disable file locking
+            - True (or "true")   --  Enable file locking
+            - "best-effort"      --  Enable file locking but ignore some errors
+            - None               --  Use HDF5 defaults
+
+            .. warning::
+
+                The HDF5_USE_FILE_LOCKING environment variable can override
+                this parameter.
+
             Only available with HDF5 >= 1.12.1 or 1.10.x >= 1.10.7.
+
+        alignment_threshold
+            Together with ``alignment_interval``, this property ensures that
+            any file object greater than or equal in size to the alignement
+            threshold (in bytes) will be aligned on an address which is a
+            multiple of alignment interval.
+
+        alignment_interval
+            This property should be used in conjunction with
+            ``alignment_threshold``. See the description above. For more
+            details, see
+            https://portal.hdfgroup.org/display/HDF5/H5P_SET_ALIGNMENT
+
+        meta_block_size
+            Set the current minimum size, in bytes, of new metadata block allocations.
+            See https://portal.hdfgroup.org/display/HDF5/H5P_SET_META_BLOCK_SIZE
+
         Additional keywords
             Passed on to the selected file driver.
         """
-        if (fs_strategy or page_buf_size) and hdf5_version < (1, 10, 1):
-            raise ValueError("HDF version 1.10.1 or greater required for file space strategy or page buffering support.")
-
-        if swmr and not swmr_support:
-            raise ValueError("The SWMR feature is not available in this version of the HDF5 library")
-
-        if driver == 'ros3' and not ros3:
-            raise ValueError(
-                "h5py was built without ROS3 support, can't use ros3 driver")
+        if driver == 'ros3':
+            if ros3:
+                from urllib.parse import urlparse
+                url = urlparse(name)
+                if url.scheme == 's3':
+                    aws_region = kwds.get('aws_region', b'').decode('ascii')
+                    if len(aws_region) == 0:
+                        raise ValueError('AWS region required for s3:// location')
+                    name = f'https://s3.{aws_region}.amazonaws.com/{url.netloc}{url.path}'
+                elif url.scheme not in ('https', 'http'):
+                    raise ValueError(f'{name}: S3 location must begin with '
+                                     'either "https://", "http://", or "s3://"')
+            else:
+                raise ValueError(
+                    "h5py was built without ROS3 support, can't use ros3 driver")
 
         if locking is not None and hdf5_version < (1, 12, 1) and (
                 hdf5_version[:2] != (1, 10) or hdf5_version[2] < 7):
-            raise ValueError("HDF version >= 1.12.1 or 1.10.x >= 1.10.7 required for file locking options.")
+            raise ValueError("HDF5 version >= 1.12.1 or 1.10.x >= 1.10.7 required for file locking options.")
 
         if isinstance(name, _objects.ObjectID):
             if fs_strategy:
@@ -500,7 +551,11 @@ class File(Group):
 
             with phil:
                 fapl = make_fapl(driver, libver, rdcc_nslots, rdcc_nbytes, rdcc_w0,
-                                 locking, page_buf_size, min_meta_keep, min_raw_keep, **kwds)
+                                 locking, page_buf_size, min_meta_keep, min_raw_keep,
+                                 alignment_threshold=alignment_threshold,
+                                 alignment_interval=alignment_interval,
+                                 meta_block_size=meta_block_size,
+                                 **kwds)
                 fcpl = make_fcpl(track_order=track_order, fs_strategy=fs_strategy,
                                  fs_persist=fs_persist, fs_threshold=fs_threshold,
                                  fs_page_size=fs_page_size)
@@ -511,7 +566,7 @@ class File(Group):
             else:
                 self._libver = (libver, 'latest')
 
-        super(File, self).__init__(fid)
+        super().__init__(fid)
 
     def close(self):
         """ Close the file.  All open objects become invalid """

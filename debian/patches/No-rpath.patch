@@ -6,11 +6,9 @@ Subject: No rpath
  setup_build.py | 4 ++--
  1 file changed, 2 insertions(+), 2 deletions(-)
 
-Index: h5py/setup_build.py
-===================================================================
---- h5py.orig/setup_build.py	2021-07-08 15:03:41.415027443 +0200
-+++ h5py/setup_build.py	2021-07-08 15:03:41.407027427 +0200
-@@ -104,8 +104,8 @@
+--- a/setup_build.py
++++ b/setup_build.py
+@@ -112,8 +112,8 @@
              settings['include_dirs'] += [mpi4py.get_include()]
  
          # TODO: should this only be done on UNIX?

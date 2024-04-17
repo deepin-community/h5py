@@ -22,6 +22,7 @@ import subprocess
 import sys
 
 from .common import ut, TestCase, UNICODE_FILENAMES, closed_tempfile
+from h5py._hl.files import direct_vfd
 from h5py import File
 import h5py
 from .. import h5
@@ -144,8 +145,6 @@ class TestFileOpen(TestCase):
             File(self.mktemp(), 'mongoose')
 
 
-@ut.skipIf(h5py.version.hdf5_version_tuple < (1, 10, 1),
-           'Requires HDF5 1.10.1 or later')
 class TestSpaceStrategy(TestCase):
 
     """
@@ -184,8 +183,6 @@ class TestSpaceStrategy(TestCase):
         fid.close()
 
 
-@ut.skipIf(h5py.version.hdf5_version_tuple < (1, 10, 1),
-           'Requires HDF5 1.10.1 or later')
 @pytest.mark.mpi_skip
 class TestPageBuffering(TestCase):
     """
@@ -301,6 +298,56 @@ class TestDrivers(TestCase):
         self.assertEqual(fid.driver, 'stdio')
         fid.close()
 
+    @ut.skipUnless(direct_vfd,
+                   "DIRECT driver is supported on Linux if hdf5 is "
+                   "built with the appriorate flags.")
+    def test_direct(self):
+        """ DIRECT driver is supported on Linux"""
+        fid = File(self.mktemp(), 'w', driver='direct')
+        self.assertTrue(fid)
+        self.assertEqual(fid.driver, 'direct')
+        default_fapl = fid.id.get_access_plist().get_fapl_direct()
+        fid.close()
+
+        # Testing creation with append flag
+        fid = File(self.mktemp(), 'a', driver='direct')
+        self.assertTrue(fid)
+        self.assertEqual(fid.driver, 'direct')
+        fid.close()
+
+        # 2022/02/26: hnmaarrfk
+        # I'm actually not too sure of the restriction on the
+        # different valid block_sizes and cbuf_sizes on different hardware
+        # platforms.
+        #
+        # I've learned a few things:
+        #    * cbuf_size: Copy buffer size must be a multiple of block size
+        # The alignment (on my platform x86-64bit with an NVMe SSD
+        # could be an integer multiple of 512
+        #
+        # To allow HDF5 to do the heavy lifting for different platform,
+        # We didn't provide any argumnets to the first call
+        # and obtained HDF5's default values there.
+
+        # Testing creation with a few different property lists
+        for alignment, block_size, cbuf_size in [
+                default_fapl,
+                (default_fapl[0], default_fapl[1], 3 * default_fapl[1]),
+                (default_fapl[0] * 2, default_fapl[1], 3 * default_fapl[1]),
+                (default_fapl[0], 2 * default_fapl[1], 6 * default_fapl[1]),
+                ]:
+            with File(self.mktemp(), 'w', driver='direct',
+                      alignment=alignment,
+                      block_size=block_size,
+                      cbuf_size=cbuf_size) as fid:
+                actual_fapl = fid.id.get_access_plist().get_fapl_direct()
+                actual_alignment = actual_fapl[0]
+                actual_block_size = actual_fapl[1]
+                actual_cbuf_size = actual_fapl[2]
+                assert actual_alignment == alignment
+                assert actual_block_size == block_size
+                assert actual_cbuf_size == actual_cbuf_size
+
     @ut.skipUnless(os.name == 'posix', "Sec2 driver is supported on posix")
     def test_sec2(self):
         """ Sec2 driver is supported on posix """
@@ -388,54 +435,17 @@ class TestDrivers(TestCase):
     # TODO: family driver tests
 
 
-@ut.skipUnless(h5py.version.hdf5_version_tuple < (1, 10, 2),
-               'Requires HDF5 before 1.10.2')
-class TestLibver(TestCase):
 
-    """
-        Feature: File format compatibility bounds can be specified when
-        opening a file.
-    """
-
-    def test_default(self):
-        """ Opening with no libver arg """
-        f = File(self.mktemp(), 'w')
-        self.assertEqual(f.libver, ('earliest', 'latest'))
-        f.close()
-
-    def test_single(self):
-        """ Opening with single libver arg """
-        f = File(self.mktemp(), 'w', libver='latest')
-        self.assertEqual(f.libver, ('latest', 'latest'))
-        f.close()
-
-    def test_multiple(self):
-        """ Opening with two libver args """
-        f = File(self.mktemp(), 'w', libver=('earliest', 'latest'))
-        self.assertEqual(f.libver, ('earliest', 'latest'))
-        f.close()
-
-    def test_none(self):
-        """ Omitting libver arg results in maximum compatibility """
-        f = File(self.mktemp(), 'w')
-        self.assertEqual(f.libver, ('earliest', 'latest'))
-        f.close()
-
-
-@ut.skipIf(h5py.version.hdf5_version_tuple < (1, 10, 2),
-           'Requires HDF5 1.10.2 or later')
 class TestNewLibver(TestCase):
 
     """
         Feature: File format compatibility bounds can be specified when
         opening a file.
-
-        Requirement: HDF5 1.10.2 or later
     """
 
     @classmethod
     def setUpClass(cls):
-        super(TestNewLibver, cls).setUpClass()
+        super().setUpClass()
 
         # Current latest library bound label
         if h5py.version.hdf5_version_tuple < (1, 11, 4):
@@ -824,7 +834,7 @@ class TestPickle(TestCase):
 # unittest doesn't work with pytest fixtures (and possibly other features),
 # hence no subclassing TestCase
 @pytest.mark.mpi
-class TestMPI(object):
+class TestMPI:
     def test_mpio(self, mpi_file_name):
         """ MPIO driver and options """
         from mpi4py import MPI
@@ -841,8 +851,6 @@ class TestMPI(object):
             assert f
             assert f.driver == 'mpio'
 
-    @pytest.mark.skipif(h5py.version.hdf5_version_tuple < (1, 8, 9),
-                        reason="mpio atomic file operations were added in HDF5 1.8.9+")
     def test_mpi_atomic(self, mpi_file_name):
         """ Enable atomic mode for MPIO driver """
         from mpi4py import MPI
@@ -862,8 +870,6 @@ class TestMPI(object):
         f.close()
 
 
-@ut.skipIf(h5py.version.hdf5_version_tuple < (1, 10, 1),
-           'Requires HDF5 1.10.1 or later')
 class TestSWMRMode(TestCase):
 
     """
@@ -956,22 +962,6 @@ f = h5py.File({str(filename)!r}, mode={mode!r}, locking={locking})
         with h5py.File(fname, mode="r", locking=False) as f:
             # Opening in write mode with locking is expected to work
             assert open_in_subprocess(fname, mode="w", locking=True)
-
-
-# unittest doesn't work with pytest fixtures (and possibly other features),
-# hence no subclassing TestCase
-class TestROS3:
-    @pytest.mark.skipif(h5py.version.hdf5_version_tuple < (1, 10, 6)
-                        or not h5.get_config().ros3,
-                        reason="ros3 file operations were added in HDF5 1.10.6+")
-    def test_ros3(self):
-        """ ROS3 driver and options """
-
-        with File("https://dandiarchive.s3.amazonaws.com/ros3test.hdf5", 'r',
-                  driver='ros3') as f:
-            assert f
-            assert 'mydataset' in f.keys()
-            assert f["mydataset"].shape == (100,)
 
 
 def test_close_gc(writable_file):

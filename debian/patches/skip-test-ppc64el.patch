@@ -1,7 +1,5 @@
-Index: h5py/h5py/tests/test_attrs_data.py
-===================================================================
---- h5py.orig/h5py/tests/test_attrs_data.py	2020-11-01 23:01:29.606160281 +0800
-+++ h5py/h5py/tests/test_attrs_data.py	2020-11-01 23:02:07.550350974 +0800
+--- a/h5py/tests/test_attrs_data.py
++++ b/h5py/tests/test_attrs_data.py
 @@ -14,6 +14,7 @@
  """
  
@@ -10,7 +8,7 @@ Index: h5py/h5py/tests/test_attrs_data.py
  
  from .common import TestCase, ut
  
-@@ -100,6 +101,7 @@
+@@ -149,6 +150,7 @@
              self.assertEqual(out.dtype, dt)
              self.assertArrayEqual(out, data)
  

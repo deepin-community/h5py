@@ -9,16 +9,21 @@ from importlib import import_module
 _OPENMPI_MULTIPROC = os_getenv('OMPI_COMM_WORLD_SIZE') is not None
 _MPICH_MULTIPROC = os_getenv('MPI_LOCALNRANKS') is not None
 _MPI_USE_ALWAYS = os_getenv('H5PY_ALWAYS_USE_MPI') is not None
+_MPI_USE_NEVER = os_getenv('H5PY_NEVER_USE_MPI') is not None
 
-_MPI_ACTIVE = _OPENMPI_MULTIPROC or _MPICH_MULTIPROC or _MPI_USE_ALWAYS
+_MPI_ACTIVE = (_OPENMPI_MULTIPROC or _MPICH_MULTIPROC) and not _MPI_USE_NEVER
 
-if _MPI_ACTIVE:
+# H5PY_ALWAYS_USE_MPI takes precedence if H5PY_NEVER_USE_MPI is also set
+if _MPI_ACTIVE or _MPI_USE_ALWAYS:
     try:
         from . import _debian_h5py_mpi as _h5py
     except:
         from . import _debian_h5py_serial as _h5py
 else:
-    from . import _debian_h5py_serial as _h5py
+    try:
+        from . import _debian_h5py_serial as _h5py
+    except:
+        from . import _debian_h5py_mpi as _h5py
 
 __version__ = _h5py.__version__
 

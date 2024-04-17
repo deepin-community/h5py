@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+for py in $(py3versions -s 2>/dev/null);
+do
+    cd "$AUTOPKGTEST_TMP"
+
+    echo "\n=== Testing network support in serial build with $py ==="
+    $py -c "from sys import exit; import h5py; exit(h5py.run_tests('-v -k ros3'))"
+done

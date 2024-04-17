@@ -1,3 +1,197 @@
+h5py (3.10.0-1) unstable; urgency=medium
+
+  * Team upload.
+
+  [ Francesco Ballarin ]
+  * New upstream version 3.10.0
+  * Remove filter_address_PR2318.patch: upstream PR 2318 is now part of 3.10.0
+  * Refresh fix-unaligned-access.patch, No-rpath.patch,
+    skip-test-ppc64el.patch, build_flavour.patch, use_system_lzf.patch
+
+ -- Drew Parsons <dparsons@debian.org>  Sat, 13 Jan 2024 16:11:16 +0100
+
+h5py (3.9.0-5) unstable; urgency=medium
+
+  * Team upload.
+  * Build-Depends: cython3-legacy. Closes: #1056807.
+  * drop deprecated Build-Depends: python3-six, python3-unittest2.
+    Also from debian/tests. Closes: #1058981.
+
+ -- Drew Parsons <dparsons@debian.org>  Sun, 31 Dec 2023 18:19:02 +0100
+
+h5py (3.9.0-4) unstable; urgency=medium
+
+  * Team upload.
+  * update h5py/__init__.py to enable fallback mechanism both ways.
+    If h5py-serial is not installed then load h5py-mpi in serial jobs.
+    If h5py-mpi is not installed than load h5py-serial in MPI jobs.
+    Obviously at least one of them needs to be installed.
+    This enables h5py to work transparently in serial jobs if
+    installed via "apt install python3-h5py python3-h5py-mpi"
+    (which would skip installation of python3-h5py-serial)
+  * the fallback mechanism makes it possible for h5py to operate in
+    both serial and MPI environments with only python3-h5py-serial or
+    with only python3-h5py-mpi installed (obviously the MPI-IO
+    features are only available with python3-h5py-mpi)
+  * add handling of H5PY_NEVER_USE_MPI environment to force use of
+    h5py-serial in MPI jobs. If both H5PY_NEVER_USE_MPI and
+    H5PY_ALWAYS_USE_MPI are set then H5PY_ALWAYS_USE_MPI takes
+    priority (h5py-mpi is loaded).
+  * document fallback and H5PY_NEVER_USE_MPI behaviour in README.Debian
+
+ -- Drew Parsons <dparsons@debian.org>  Fri, 13 Oct 2023 13:16:16 +0200
+
+h5py (3.9.0-3) unstable; urgency=medium
+
+  * Team upload.
+  * debian patch filter_address_PR2318.patch applies upstream PR#2318
+    to fix handling of filter pointer addresses. Closes: #1053341.
+
+ -- Drew Parsons <dparsons@debian.org>  Tue, 03 Oct 2023 18:56:27 +0200
+
+h5py (3.9.0-2) unstable; urgency=medium
+
+  * Team upload.
+  * ensure distinfo metadata is provided with the python3-h5py
+    dependency package from arch-indep builds. h5py metadata is taken
+    from the mpi build, but without the mpi4py requirement.
+    Closes: #1051781.
+
+ -- Drew Parsons <dparsons@debian.org>  Fri, 29 Sep 2023 17:21:38 +0200
+
+h5py (3.9.0-1) unstable; urgency=medium
+
+  * Team upload.
+
+  [ Drew Parsons ]
+  * New upstream release.
+    - applies debian patch doc_extlink_PR2112.patch
+    - versioned Build-Depends: python3-mpi4py (>= 3.1.4)
+  * skip network (ros3) tests
+    - debian/tests: add *-network tests with ros3
+      using needs-internet
+    - drop debian patch skip_ros_test_no_net.patch
+    - see upstream Issue #2286 for further discussion of problems with
+      the --no-network option that should instead be used
+  * update debian/rules to patch python packages in pyproject.toml not
+    setup.py for each flavour (serial,mpi)
+  * update debian patch skip_test_selection_assertion.patch to
+    handle the test of FancySelection by tuple.
+    - use sel.FancySelection.__name__ rather than a hardcoded string
+  * debian/tests: run tests via exit() to catch error conditions
+  * create h5py-*.dist-info separately for serial and mpi builds, and
+    provide generic h5py dist-info in python3-h5py. Provide top-level
+    __init__.py wrapper in python3-h5py. Closes: #1041480, #1051781.
+    python-h5py Replaces, Breaks: python3-h5py-serial (<< 3.9.0-1~)
+  * dh_clean removes .pytest_cache. Closes: #1045045.
+
+  [ Enrico Zini ]
+  * hdf5-plugin-lzf: added provides and autopkgtests after
+    https://salsa.debian.org/science-team/h5f-packaging-guidelines
+    Closes: #1032586
+
+ -- Drew Parsons <dparsons@debian.org>  Thu, 28 Sep 2023 17:00:27 +0200
+
+h5py (3.7.0-8) unstable; urgency=medium
+
+  * Team upload.
+  * sparc64: skip test_reference_field
+
+ -- Drew Parsons <dparsons@debian.org>  Mon, 20 Feb 2023 17:33:32 +0100
+
+h5py (3.7.0-7) unstable; urgency=medium
+
+  * Team upload.
+  * sparc64: skip test_reference_numpyobj
+
+ -- Drew Parsons <dparsons@debian.org>  Sun, 05 Feb 2023 00:12:57 +0100
+
+h5py (3.7.0-6) unstable; urgency=medium
+
+  * Team upload.
+  * sparc64: skip test_compound_vlen_enum
+
+ -- Drew Parsons <dparsons@debian.org>  Sat, 04 Feb 2023 17:10:32 +0100
+
+h5py (3.7.0-5) unstable; urgency=medium
+
+  * Team upload.
+  * skip failing build-time tests
+    - powerpc: test_complex256 test_long_double
+      test_custom_float_promotion
+    - sparc64: test_compound_vlen_bool
+
+ -- Drew Parsons <dparsons@debian.org>  Sat, 04 Feb 2023 14:20:48 +0100
+
+h5py (3.7.0-4) unstable; urgency=medium
+
+  * Team upload.
+
+  [ Drew Parsons ]
+  * use pydist files so that dh_python3 uses the generic python3-h5py
+    package as the h5py python package dependency for both
+    python3-h5py-serial and python3-h5py-mpi.
+    Closes: #1025575, #1030220, #1030274.
+  * Standards-Version: 4.6.2
+
+  [ Helmut Grohne ]
+  * Reduce Build-Depends: (Closes: #1026041)
+    + Declaratively request debhelper addons.
+    + Clean docs without requiring sphinx.
+    + Move sphinx dependencies to B-D-I.
+    + Annotate pytest dependencies <!nocheck>.
+    + Multiarchify python Build-Depends.
+  * Don't hard code the build architecture pkg-config.
+
+ -- Drew Parsons <dparsons@debian.org>  Thu, 02 Feb 2023 13:06:51 +0100
+
+h5py (3.7.0-3) unstable; urgency=medium
+
+  * Team upload.
+  * Build with HDF5_USE_SHLIB=yes to ensure libhdf5.so shared libraries
+    are used. Closes: #1020054.
+
+ -- Drew Parsons <dparsons@debian.org>  Mon, 14 Nov 2022 17:45:49 +0100
+
+h5py (3.7.0-2) unstable; urgency=medium
+
+  * Team upload.
+  * debian patch doc_extlink_PR2112.patch applies upstream PR#2112 to
+    update handling of extlinks in sphinx docs. Closes: #1013400.
+  * debian/tests: use `py3versions -s` to run tests over all supported
+    python versions
+
+ -- Drew Parsons <dparsons@debian.org>  Mon, 01 Aug 2022 15:28:22 +0200
+
+h5py (3.7.0-1) experimental; urgency=medium
+
+  * Team upload.
+  * New upstream release.
+  * Build-Depends: pybuild-plugin-pyproject (use pyproject.toml)
+    - drop EGG references in debian/rules
+  * reorganise debian/rules to only build MPI build once
+  * Standards-Version: 4.6.1
+
+ -- Drew Parsons <dparsons@debian.org>  Sun, 19 Jun 2022 22:25:30 +0200
+
+h5py (3.6.0-2) unstable; urgency=medium
+
+  * Team upload.
+  * upload 3.6.0 to unstable
+
+ -- Drew Parsons <dparsons@debian.org>  Mon, 13 Dec 2021 11:32:22 +0100
+
+h5py (3.6.0-1exp1) experimental; urgency=medium
+
+  * Team upload.
+  * New upstream release.
+    - makes debian patch numpy_min_version.patch redundant
+  * mark hdf5-plugin-lzf Multi-Arch: same
+  * debian patch doc_local_mathjax.patch configures docs to reference
+    mathjax locally
+
+ -- Drew Parsons <dparsons@debian.org>  Fri, 03 Dec 2021 17:55:24 +0100
+
 h5py (3.5.0-2) unstable; urgency=medium
 
   * Team upload.

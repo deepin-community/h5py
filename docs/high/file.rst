@@ -96,18 +96,35 @@ of supported drivers and their options:
           Raw data filename extension. Default is '-r.h5'.
 
     'ros3'
-        Allows read only access to HDF5 files on S3. Keywords:
+        Enables read-only access to HDF5 files in the AWS S3 or S3-compatible object
+        stores. HDF5 file name must be one of \http://, \https://, or s3://
+        resource location. An s3:// location will be translated into an AWS
+        `path-style <https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html#path-style-access>`_
+        location by h5py. Keywords:
 
         aws_region:
-          Name of the AWS "region" where the S3 bucket with the file is, e.g. ``b"us-east-1"``. Default is ``b''``.
+          AWS region of the S3 bucket with the file, e.g. ``b"us-east-1"``.
+          Default is ``b''``. Required for s3:// locations.
 
         secret_id:
-          "Access ID" for the resource. Default is ``b''``.
+          AWS access key ID. Default is ``b''``.
 
         secret_key:
-          "Secret Access Key" associated with the ID and resource. Default is ``b''``.
+          AWS secret access key. Default is ``b''``.
 
-        The argument values must be ``bytes`` objects.
+        session_token:
+          AWS temporary session token. Default is ``b''``.' Must be used
+          together with temporary secret_id and secret_key. Available from HDF5 1.14.2.
+
+        The argument values must be ``bytes`` objects. Arguments aws_region,
+        secret_id, and secret_key are required to activate AWS authentication.
+
+        .. note::
+           Pre-built h5py packages on PyPI do not include ros3 driver support. If
+           you want this feature, you could use packages from conda-forge, or
+           :ref:`build h5py from source <source_install>` against an HDF5 build
+           with ros3. Alternatively, use the :ref:`file-like object
+           <file_fileobj>` support with a package like s3fs.
 
 
 .. _file_fileobj:
@@ -145,6 +162,25 @@ a better option may be to store temporary data on disk using the functions in
    When using a Python file-like object for an HDF5 file, make sure to close
    the HDF5 file before closing the file object it's wrapping. If there is an
    error while trying to close the HDF5 file, segfaults may occur.
+
+
+.. warning::
+
+   When using a Python file-like object, using service threads to implement the
+   file-like API can lead to process deadlocks.
+
+   ``h5py`` serializes access to low-level hdf5 functions via a global lock.
+   This lock is held when the file-like methods are called and is required to
+   delete/deallocate ``h5py`` objects.  Thus, if cyclic garbage collection is
+   triggered on a service thread the program will deadlock.  The service thread
+   can not continue until it acquires the lock, and the thread holding the lock will
+   not release it until the service thread completes its work.
+
+   If possible, avoid creating circular references (either via ``weakrefs`` or
+   manually breaking the cycles) that keep ``h5py`` objects alive.  If this
+   is not possible, manually triggering a garbage collection from the correct
+   thread or temporarily disabling garbage collection may help.
+
 
 .. note::
 
@@ -252,44 +288,46 @@ Filenames on different systems
 
 Different operating systems (and different file systems) store filenames with
 different encodings. Additionally, in Python there are at least two different
-representations of filenames, as encoded bytes (via str on Python 2, bytes on
-Python 3) or as a unicode string (via unicode on Python 2 and str on Python 3).
-The safest bet when creating a new file is to use unicode strings on all
-systems.
+representations of filenames, as encoded ``bytes`` or as a Unicode string
+(``str`` on Python 3).
+
+h5py's high-level interfaces always return filenames as ``str``, e.g.
+:attr:`File.filename`. h5py accepts filenames as either ``str`` or ``bytes``.
+In most cases, using Unicode (``str``) paths is preferred, but there are some
+caveats.
+
+.. note::
+
+   HDF5 handles filenames as bytes (C ``char *``), and the h5py :doc:`lowlevel`
+   matches this.
 
 macOS (OSX)
 ...........
 macOS is the simplest system to deal with, it only accepts UTF-8, so using
-unicode paths will just work (and should be preferred).
+Unicode paths will just work (and should be preferred).
 
 Linux (and non-macOS Unix)
 ..........................
-Unix-like systems use locale settings to determine the correct encoding to use.
-These are set via a number of different environment variables, of which ``LANG``
-and ``LC_ALL`` are the ones of most interest. Of special interest is the ``C``
-locale, which Python will interpret as only allowing ASCII, meaning unicode
-paths should be pre-encoded. This will likely change in Python 3.7 with
-https://www.python.org/dev/peps/pep-0538/, but this will likely be backported by
-distributions to earlier versions.
+Filenames on Unix-like systems are natively bytes. By convention, the locale
+encoding is used to convert to and from unicode; on most modern systems this
+will be UTF-8 by default (especially since Python 3.7, with :pep:`538`).
 
-To summarise, use unicode strings where possible, but be aware that sometimes
-using encoded bytes may be necessary to read incorrectly encoded filenames.
+Passing Unicode paths will mostly work, and Unicode paths from system
+functions like ``os.listdir()`` should always work. But if there are filenames
+that aren't in the expected encoding (e.g. on a network filesystem or a
+removable drive, or because something is misconfigured), you may want to handle
+them as bytes.
 
 Windows
 .......
-Windows systems have two different APIs to perform file-related operations, a
-ANSI (char, legacy) interface and a unicode (wchar) interface. HDF5 currently
-only supports the ANSI interface, which is limited in what it can encode. This
-means that it may not be possible to open certain files, and because
-:ref:`group_extlinks` do not specify their encoding, it is possible that opening an
-external link may not work. There is work being done to fix this (see
-https://github.com/h5py/h5py/issues/839), but it is likely there will need to be
-breaking changes make to allow Windows to have the same level of support for
-unicode filenames as other operating systems.
+Windows systems natively handle filenames as Unicode, and with HDF5 1.10.6 and
+above filenames passed to h5py as bytes will be used as UTF-8 encoded text,
+regardless of system configuration.
 
-The best suggestion is to use unicode strings, but to keep to ASCII for
-filenames to avoid possible breakage.
-
+HDF5 1.10.5 and below could only use filenames with characters from the active
+code page, e.g. `Windows-1252 <https://en.wikipedia.org/wiki/Windows-1252>`_ on
+many systems configured for European languages. This limitation applies whether
+you use ``str`` or ``bytes`` with h5py.
 
 .. _file_cache:
 
@@ -306,10 +344,10 @@ given dataset's chunks are controlled when creating the dataset, but it is
 possible to adjust the behavior of the chunk *cache* when opening the file.
 
 The parameters controlling this behavior are prefixed by ``rdcc``, for *raw data
-chunk cache*.
+chunk cache*. They apply to all datasets unless specifically changed for each one.
 
 * ``rdcc_nbytes`` sets the total size (measured in bytes) of the raw data chunk
-  cache for each dataset.  The default size is 1 MB.
+  cache for each dataset.  The default size is 1 MiB.
   This should be set to the size of each chunk times the number of
   chunks that are likely to be needed in cache.
 * ``rdcc_w0`` sets the policy for chunks to be
@@ -323,7 +361,7 @@ chunk cache*.
   closer to 0, and if the application does not, the value should be set closer
   to 1.
 * ``rdcc_nslots`` is the number of chunk slots in
-  the cache for this entire file.  In order to allow the chunks to be looked up
+  the cache for each dataset.  In order to allow the chunks to be looked up
   quickly in cache, each chunk is assigned a unique hash value that is used to
   look up the chunk.  The cache contains a simple array of pointers to chunks,
   which is called a hash table.  A chunk's hash value is simply the index into
@@ -346,6 +384,39 @@ chunk cache*.
 Chunks and caching are described in greater detail in the `HDF5 documentation
 <https://portal.hdfgroup.org/display/HDF5/Chunking+in+HDF5>`_.
 
+.. _file_alignment:
+
+Data alignment
+--------------
+
+When creating datasets within files, it may be advantageous to align the offset
+within the file itself. This can help optimize read and write times if the data
+become aligned with the underlying hardware, or may help with parallelism with
+MPI. Unfortunately, aligning small variables to large blocks can leave alot of
+empty space in a file. To this effect, application developers are left with two
+options to tune the alignment of data within their file.  The two variables
+``alignment_threshold`` and ``alignment_interval``  in the :class:`File`
+constructor help control the threshold in bytes where the data alignment policy
+takes effect and the alignment in bytes within the file. The alignment is
+measured from the end of the user block.
+
+For more information, see the official HDF5 documentation `H5P_SET_ALIGNMENT
+<https://portal.hdfgroup.org/display/HDF5/H5P_SET_ALIGNMENT>`_.
+
+.. _file_meta_block_size:
+
+Meta block size
+---------------
+
+Space for metadata is allocated in blocks within the HDF5 file. The argument
+``meta_block_size`` of the :class:`File` constructor sets the minimum size of
+these blocks.  Setting a large value can consolidate metadata into a small
+number of regions. Setting a small value can reduce the overall file size,
+especially in combination with the ``libver`` option. This controls how the
+overall data and metadata are laid out within the file.
+
+For more information, see the offical HDF5 documentation `H5P_SET_META_BLOCK_SIZE
+<https://portal.hdfgroup.org/display/HDF5/H5P_SET_META_BLOCK_SIZE>`_.
 
 Reference
 ---------
@@ -356,15 +427,17 @@ Reference
     HDF5 name of the root group, "``/``". To access the on-disk name, use
     :attr:`File.filename`.
 
-.. class:: File(name, mode=None, driver=None, libver=None, \
-    userblock_size=None, swmr=False, rdcc_nslots=None, rdcc_nbytes=None, \
-    rdcc_w0=None, track_order=None, fs_strategy=None, fs_persist=False, \
-    fs_threshold=1, **kwds)
+.. class:: File(name, mode='r', driver=None, libver=None, userblock_size=None, \
+    swmr=False, rdcc_nslots=None, rdcc_nbytes=None, rdcc_w0=None, \
+    track_order=None, fs_strategy=None, fs_persist=False, fs_threshold=1, \
+    fs_page_size=None, page_buf_size=None, min_meta_keep=0, min_raw_keep=0, \
+    locking=None, alignment_threshold=1, alignment_interval=1, **kwds)
 
     Open or create a new file.
 
-    Note that in addition to the File-specific methods and properties listed
-    below, File objects inherit the full interface of :class:`Group`.
+    Note that in addition to the :class:`File`-specific methods and properties
+    listed below, :class:`File` objects inherit the full interface of
+    :class:`Group`.
 
     :param name:    Name of file (`bytes` or `str`), or an instance of
                     :class:`h5f.FileID` to bind to an existing
@@ -390,13 +463,47 @@ Reference
                     ``h5.get_config().track_order``.
     :param fs_strategy: The file space handling strategy to be used.
             Only allowed when creating a new file. One of "fsm", "page",
-            "aggregate", "none", or None (to use the HDF5 default).
+            "aggregate", "none", or ``None`` (to use the HDF5 default).
     :param fs_persist: A boolean to indicate whether free space should be
             persistent or not. Only allowed when creating a new file. The
             default is False.
+    :param fs_page_size: File space page size in bytes. Only use when
+            fs_strategy="page". If ``None`` use the HDF5 default (4096 bytes).
     :param fs_threshold: The smallest free-space section size that the free
             space manager will track. Only allowed when creating a new file.
             The default is 1.
+    :param page_buf_size: Page buffer size in bytes. Only allowed for HDF5 files
+            created with fs_strategy="page". Must be a power of two value and
+            greater or equal than the file space page size when creating the
+            file. It is not used by default.
+    :param min_meta_keep: Minimum percentage of metadata to keep in the page
+            buffer before allowing pages containing metadata to be evicted.
+            Applicable only if ``page_buf_size`` is set. Default value is zero.
+    :param min_raw_keep: Minimum percentage of raw data to keep in the page
+            buffer before allowing pages containing raw data to be evicted.
+            Applicable only if ``page_buf_size`` is set. Default value is zero.
+    :param locking: The file locking behavior. One of:
+
+            - False (or "false") --  Disable file locking
+            - True (or "true")   --  Enable file locking
+            - "best-effort"      --  Enable file locking but ignore some errors
+            - None               --  Use HDF5 defaults
+
+            .. warning::
+
+                The HDF5_USE_FILE_LOCKING environment variable can override
+                this parameter.
+
+            Only available with HDF5 >= 1.12.1 or 1.10.x >= 1.10.7.
+    :param alignment_threshold: Together with ``alignment_interval``, this
+            property ensures that any file object greater than or equal
+            in size to the alignement threshold (in bytes) will be
+            aligned on an address which is a multiple of alignment interval.
+    :param alignment_interval: This property should be used in conjunction with
+            ``alignment_threshold``. See the description above. For more
+            details, see :ref:`file_alignment`.
+    :param meta_block_size: Determines the current minimum size, in bytes, of
+            new metadata block allocations. See :ref:`file_meta_block_size`.
     :param kwds:    Driver-specific keywords; see :ref:`file_driver`.
 
     .. method:: __bool__()
@@ -425,8 +532,7 @@ Reference
 
     .. attribute:: filename
 
-        Name of this file on disk.  Generally a Unicode string; a byte string
-        will be used if HDF5 returns a non-UTF-8 encoded string.
+        Name of this file on disk, as a Unicode string.
 
     .. attribute:: mode
 
@@ -451,3 +557,8 @@ Reference
     .. attribute:: userblock_size
 
         Size of user block (in bytes).  Generally 0.  See :ref:`file_userblock`.
+
+    .. attribute:: meta_block_size
+
+        Minimum size, in bytes, of metadata block allocations. Default: 2048.
+        See :ref:`file_meta_block_size`.

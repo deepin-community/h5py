@@ -82,7 +82,7 @@ def select(shape, args, dataset=None):
     return selector.make_selection(args)
 
 
-class Selection(object):
+class Selection:
 
     """
         Base class for HDF5 dataspace selections.  Subclasses support the
@@ -427,7 +427,7 @@ def guess_shape(sid):
 
     shape = tuple(get_n_axis(sid, x) for x in range(rank))
 
-    if np.product(shape) != N:
+    if product(shape) != N:
         # This means multiple hyperslab selections are in effect,
         # so we fall back to a 1D shape
         return (N,)

@@ -54,13 +54,30 @@ def mpi_enabled():
 
 
 class BuildConfig:
-    def __init__(self, hdf5_includedirs, hdf5_libdirs, hdf5_define_macros, hdf5_version, mpi, ros3):
+    def __init__(self, hdf5_includedirs, hdf5_libdirs, hdf5_define_macros,
+                 hdf5_version, mpi, ros3, direct_vfd):
         self.hdf5_includedirs = hdf5_includedirs
         self.hdf5_libdirs = hdf5_libdirs
         self.hdf5_define_macros = hdf5_define_macros
         self.hdf5_version = hdf5_version
         self.mpi = mpi
         self.ros3 = ros3
+        self.direct_vfd = direct_vfd
+
+        if self.mpi and os.environ.get('H5PY_MSMPI') == 'ON':
+            self.msmpi = True
+            self.msmpi_inc_dirs = os.environ.get('MSMPI_INC').split(';')
+            import platform
+            bitness, _ = platform.architecture()
+            if bitness == '64bit':
+                mpi_lib_envvar = 'MSMPI_LIB64'
+            else:
+                mpi_lib_envvar = 'MSMPI_LIB32'
+            self.msmpi_lib_dirs = os.environ.get(mpi_lib_envvar).split(';')
+        else:
+            self.msmpi = False
+            self.msmpi_inc_dirs = []
+            self.msmpi_lib_dirs = []
 
     @classmethod
     def from_env(cls):
@@ -68,17 +85,34 @@ class BuildConfig:
         h5_inc, h5_lib, h5_macros = cls._find_hdf5_compiler_settings(mpi)
 
         h5_version_s = os.environ.get('HDF5_VERSION')
+        h5py_ros3 = os.environ.get('H5PY_ROS3')
+        h5py_direct_vfd = os.environ.get('H5PY_DIRECT_VFD')
+
+        if h5_version_s and not mpi and h5py_ros3 and h5py_direct_vfd:
+            # if we know config, don't use wrapper, it may not be supported
+            return cls(
+                h5_inc, h5_lib, h5_macros, validate_version(h5_version_s), mpi,
+                h5py_ros3 == '1', h5py_direct_vfd == '1')
+
+        h5_wrapper = HDF5LibWrapper(h5_lib)
         if h5_version_s:
             h5_version = validate_version(h5_version_s)
-            h5_wrapper = HDF5LibWrapper(h5_lib)
         else:
-            h5_wrapper = HDF5LibWrapper(h5_lib)
             h5_version = h5_wrapper.autodetect_version()
             if mpi and not h5_wrapper.has_mpi_support():
                 raise RuntimeError("MPI support not detected")
-        ros3 = h5_wrapper.has_ros3_support()
 
-        return cls(h5_inc, h5_lib, h5_macros, h5_version, mpi, ros3)
+        if h5py_ros3:
+            ros3 = h5py_ros3 == '1'
+        else:
+            ros3 = h5_wrapper.has_ros3_support()
+
+        if h5py_direct_vfd:
+            direct_vfd = h5py_direct_vfd == '1'
+        else:
+            direct_vfd = h5_wrapper.has_direct_vfd_support()
+
+        return cls(h5_inc, h5_lib, h5_macros, h5_version, mpi, ros3, direct_vfd)
 
     @staticmethod
     def _find_hdf5_compiler_settings(mpi=False):
@@ -135,7 +169,9 @@ class BuildConfig:
             if os.name != 'nt':
                 print(
                     "Building h5py requires pkg-config unless the HDF5 path "
-                    "is explicitly specified", file=sys.stderr
+                    "is explicitly specified using the environment variable HDF5_DIR. "
+                    "For more information and details, "
+                    "see https://docs.h5py.org/en/stable/build.html#custom-installation", file=sys.stderr
                 )
                 raise
 
@@ -153,6 +189,10 @@ class BuildConfig:
             'hdf5_version': list(self.hdf5_version),  # list() to match the JSON
             'mpi': self.mpi,
             'ros3': self.ros3,
+            'direct_vfd': self.direct_vfd,
+            'msmpi': self.msmpi,
+            'msmpi_inc_dirs': self.msmpi_inc_dirs,
+            'msmpi_lib_dirs': self.msmpi_lib_dirs,
         }
 
     def changed(self):
@@ -170,12 +210,16 @@ class BuildConfig:
         print('*' * 80)
         print(' ' * 23 + "Summary of the h5py configuration")
         print('')
-        print("HDF5 include dirs:", fmt_dirs(self.hdf5_includedirs))
-        print("HDF5 library dirs:", fmt_dirs(self.hdf5_libdirs))
-        print("     HDF5 Version:", repr(self.hdf5_version))
-        print("      MPI Enabled:", self.mpi)
-        print(" ROS3 VFD Enabled:", self.ros3)
-        print(" Rebuild Required:", self.changed())
+        print("  HDF5 include dirs:", fmt_dirs(self.hdf5_includedirs))
+        print("  HDF5 library dirs:", fmt_dirs(self.hdf5_libdirs))
+        print("       HDF5 Version:", repr(self.hdf5_version))
+        print("        MPI Enabled:", self.mpi)
+        print("   ROS3 VFD Enabled:", self.ros3)
+        print(" DIRECT VFD Enabled:", self.direct_vfd)
+        print("   Rebuild Required:", self.changed())
+        print("     MS-MPI Enabled:", self.msmpi)
+        print("MS-MPI include dirs:", self.msmpi_inc_dirs)
+        print("MS-MPI library dirs:", self.msmpi_lib_dirs)
         print('')
         print('*' * 80)
 
@@ -200,14 +244,20 @@ class HDF5LibWrapper:
         if sys.platform.startswith('darwin'):
             default_path = 'libhdf5.dylib'
             regexp = re.compile(r'^libhdf5.dylib')
-        elif sys.platform.startswith('win') or \
-            sys.platform.startswith('cygwin'):
-            default_path = 'hdf5.dll'
-            regexp = re.compile(r'^hdf5.dll')
+        elif sys.platform.startswith('win'):
+            if 'MSC' in sys.version:
+                default_path = 'hdf5.dll'
+                regexp = re.compile(r'^hdf5.dll')
+            else:
+                default_path = 'libhdf5-0.dll'
+                regexp = re.compile(r'^libhdf5-[0-9].dll')
             if sys.version_info >= (3, 8):
                 # To overcome "difficulty" loading the library on windows
                 # https://bugs.python.org/issue42114
                 load_kw['winmode'] = 0
+        elif sys.platform.startswith('cygwin'):
+            default_path = 'cyghdf5-200.dll'
+            regexp = re.compile(r'^cyghdf5-\d+.dll$')
         else:
             default_path = 'libhdf5.so'
             regexp = re.compile(r'^libhdf5.so')
@@ -238,6 +288,7 @@ class HDF5LibWrapper:
             lib = ctypes.CDLL(path, **load_kw)
         except Exception:
             print("error: Unable to load dependency HDF5, make sure HDF5 is installed properly")
+            print("Library dirs checked:", libdirs)
             raise
 
         self._lib = lib
@@ -281,3 +332,6 @@ class HDF5LibWrapper:
 
     def has_ros3_support(self):
         return self.has_functions("H5Pget_fapl_ros3", "H5Pset_fapl_ros3")
+
+    def has_direct_vfd_support(self):
+        return self.has_functions("H5Pget_fapl_direct", "H5Pset_fapl_direct")

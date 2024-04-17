@@ -42,7 +42,6 @@ cdef extern from "hdf5.h":
             H5E_EFL,                    # External file list
             H5E_REFERENCE,              # References
             H5E_VFL,                    # Virtual File Layer
-        #   H5E_TBBT,                   # Threaded, Balanced, Binary Trees (not in 1.8)
             H5E_TST,                    # Ternary Search Trees
             H5E_RS,                     # Reference Counted Strings
             H5E_ERROR,                  # Error API
@@ -227,7 +226,6 @@ cdef extern from "hdf5.h":
             H5E_EFL,                    # External file list
             H5E_REFERENCE,              # References
             H5E_VFL,                    # Virtual File Layer
-        #   H5E_TBBT,                   # Threaded, Balanced, Binary Trees (not in 1.8)
             H5E_TST,                    # Ternary Search Trees
             H5E_RS,                     # Reference Counted Strings
             H5E_ERROR,                  # Error API
@@ -412,7 +410,7 @@ cdef extern from "hdf5.h":
 
     herr_t    H5Eprint(hid_t estack_id, void *stream)
 
-    ctypedef herr_t (*H5E_walk_t)(int n, H5E_error_t *err_desc, void* client_data)
+    ctypedef herr_t (*H5E_walk_t)(unsigned int n, const H5E_error_t *err_desc, void* client_data)
     herr_t    H5Ewalk(hid_t estack_id, H5E_direction_t direction, H5E_walk_t func, void* client_data)
 
 # --- Functions for managing the HDF5 error callback mechanism ---

@@ -8,8 +8,8 @@ Subject: No intersphinx
 
 Index: h5py/docs/conf.py
 ===================================================================
---- h5py.orig/docs/conf.py	2021-07-08 15:03:48.035041009 +0200
-+++ h5py/docs/conf.py	2021-07-08 15:03:48.031041001 +0200
+--- h5py.orig/docs/conf.py	2023-07-10 00:03:10.067201933 +0200
++++ h5py/docs/conf.py	2023-07-10 00:03:10.059201865 +0200
 @@ -34,7 +34,7 @@
          'sphinx.ext.mathjax',
  ]
@@ -18,4 +18,4 @@ Index: h5py/docs/conf.py
 +#intersphinx_mapping = {'low': ('https://api.h5py.org', None)}
  
  extlinks = {
-     'issue': ('https://github.com/h5py/h5py/issues/%s', 'GH'),
+     'issue': ('https://github.com/h5py/h5py/issues/%s', 'GH%s'),

@@ -3,7 +3,9 @@
 # Uncomment this to turn on verbose mode.
 #export DH_VERBOSE = 1
 
+include /usr/share/dpkg/architecture.mk
 include /usr/share/dpkg/buildflags.mk
+include /usr/share/dpkg/buildtools.mk
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
@@ -19,33 +21,57 @@ SUBMODULE_MPI=_debian_$(PYBUILD_NAME_MPI)
 PYBUILD_DIR_SERIAL=$(shell PYBUILD_NAME=$(PYBUILD_NAME_SERIAL) pybuild -p `py3versions -dv` --print {build_dir})
 PYBUILD_DIR_MPI=$(shell PYBUILD_NAME=$(PYBUILD_NAME_MPI) pybuild -p `py3versions -dv` --print {build_dir})
 
+PY3VER=$(shell py3versions -dv)
+
 export OMPI_MCA_plm_rsh_agent=/bin/false
 export OMPI_MCA_rmaps_base_oversubscribe=1
 
-%:
-	dh $@ --with python3,sphinxdoc --buildsystem=pybuild
+# ros3 tests require internet, which is not available from debian buildds
+SKIP_TEST_LIST = ros3
 
-override_dh_clean:
-	dh_clean
+ifneq (,$(findstring $(DEB_HOST_ARCH), powerpc))
+    SKIP_TEST_LIST += test_complex256 test_long_double test_custom_float_promotion
+endif
+
+ifneq (,$(findstring $(DEB_HOST_ARCH), sparc64))
+    SKIP_TEST_LIST += test_compound_vlen_bool test_compound_vlen_enum test_reference_numpyobj test_reference_field
+endif
+
+SKIP_TESTS=$(shell skip_tests=""; list_initialised=0; \
+        for t in $(SKIP_TEST_LIST); do \
+            if [ $${list_initialised} = 0 ]; then \
+                skip_tests=$$t; \
+                list_initialised=1; \
+            else \
+                skip_tests="$${skip_tests} or $$t"; \
+            fi; \
+        done; \
+        if [ "x$${skip_tests}" != "x" ]; then \
+            echo "not ( $${skip_tests} )"; \
+        fi )
+
+
+%:
+	dh $@ --buildsystem=pybuild
+
+execute_after_dh_clean:
 	rm -rf $(BUILD_DIR_SERIAL) $(BUILD_DIR_MPI)
+	rm -rf .pytest_cache
 
 override_dh_auto_clean:
 	dh_auto_clean -D $(BUILD_DIR_SERIAL) || /bin/true
 	dh_auto_clean -D $(BUILD_DIR_MPI) || /bin/true
-ifeq (,$(filter nodoc,$(DEB_BUILD_OPTIONS)))
-	$(MAKE) -C docs clean
-	$(MAKE) -C docs_api clean
-endif
+	rm -Rf docs/_build docs_api/_build
 
 override_dh_auto_configure:
 	mkdir $(BUILD_DIR_SERIAL); bash -O extglob -c "cp -ra ./!($(BUILD_DIR_SERIAL)) $(BUILD_DIR_SERIAL)"
-	sed "s/'h5py'/'h5py.$(SUBMODULE_SERIAL)'/g; s/'h5py._hl'/'h5py.$(SUBMODULE_SERIAL)._hl'/g; s/'h5py.tests/'h5py.$(SUBMODULE_SERIAL).tests/g; s/'h5py.x/'h5py.$(SUBMODULE_SERIAL).x/g" -i $(BUILD_DIR_SERIAL)/setup.py
+	sed "s/    \"h5py\./    \"h5py.$(SUBMODULE_SERIAL)./g; s/    \"h5py\",/    \"h5py.$(SUBMODULE_SERIAL)\",/g" -i $(BUILD_DIR_SERIAL)/pyproject.toml
 	sed "s/flavour=''/flavour='$(SUBMODULE_SERIAL)'/" -i $(BUILD_DIR_SERIAL)/setup_build.py
 	mv $(BUILD_DIR_SERIAL)/h5py $(BUILD_DIR_SERIAL)/$(SUBMODULE_SERIAL)
 	cp -r debian/wrapper_module/h5py $(BUILD_DIR_SERIAL)
 	mv $(BUILD_DIR_SERIAL)/$(SUBMODULE_SERIAL) $(BUILD_DIR_SERIAL)/h5py
 	mkdir $(BUILD_DIR_MPI); bash -O extglob -c "cp -ra ./!($(BUILD_DIR_SERIAL)|$(BUILD_DIR_MPI)) $(BUILD_DIR_MPI)"
-	sed "s/'h5py'/'h5py.$(SUBMODULE_MPI)'/g; s/'h5py._hl'/'h5py.$(SUBMODULE_MPI)._hl'/g; s/'h5py.tests/'h5py.$(SUBMODULE_MPI).tests/g; s/'h5py.x/'h5py.$(SUBMODULE_MPI).x/g" -i $(BUILD_DIR_MPI)/setup.py
+	sed "s/    \"h5py\./    \"h5py.$(SUBMODULE_MPI)./g; s/    \"h5py\",/    \"h5py.$(SUBMODULE_MPI)\",/g" -i $(BUILD_DIR_MPI)/pyproject.toml
 	sed "s/flavour=''/flavour='$(SUBMODULE_MPI)'/" -i $(BUILD_DIR_MPI)/setup_build.py
 	mv $(BUILD_DIR_MPI)/h5py $(BUILD_DIR_MPI)/$(SUBMODULE_MPI)
 	cp -r debian/wrapper_module/h5py $(BUILD_DIR_MPI)
@@ -58,80 +84,104 @@ override_dh_auto_configure:
 # However rather than applying H5PY_SETUP_REQUIRES=0, in Debian we maintain minimal version checks
 # by patching setup.py to inequalities where needed (e.g. "mpi4py >=3.0.3")
 
-build-mpi:
-	PYBUILD_NAME=$(PYBUILD_NAME_MPI) CC=h5pcc HDF5_MPI=ON HDF5_PKGCONFIG_NAME=hdf5-mpi H5PY_SYSTEM_LZF=1 dh_auto_build -D $(BUILD_DIR_MPI)
+# build MPI build for both arch and indep builds (i.e. use MPI build to build docs in arch-indep build)
+override_dh_auto_build: export http_proxy=127.0.0.1:9
+override_dh_auto_build: export https_proxy=127.0.0.1:9
+override_dh_auto_build:
+	PYBUILD_NAME=$(PYBUILD_NAME_MPI) CC=h5pcc HDF5_USE_SHLIB=yes HDF5_MPI=ON HDF5_PKGCONFIG_NAME=hdf5-mpi H5PY_SYSTEM_LZF=1 dh_auto_build -D $(BUILD_DIR_MPI)
 	for DIR in $$(find .pybuild/cpython3*mpi -name build); do \
 		cp -r $(CURDIR)/debian/wrapper_module/h5py/* $$DIR/h5py/; \
 	done
-	cd $(BUILD_DIR_MPI)/lzf; $(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) $(shell pkg-config --cflags --libs hdf5-mpi liblzf) -fPIC -shared lzf_filter.c -o liblzf_filter.so
+	cd $(BUILD_DIR_MPI)/lzf; $(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) $(shell $(PKG_CONFIG) --cflags --libs hdf5-mpi liblzf) -fPIC -shared lzf_filter.c -o liblzf_filter.so
 
-override_dh_auto_build-arch: export http_proxy=127.0.0.1:9
-override_dh_auto_build-arch: export https_proxy=127.0.0.1:9
-override_dh_auto_build-arch: build-mpi
-	PYBUILD_NAME=$(PYBUILD_NAME_SERIAL) HDF5_PKGCONFIG_NAME=hdf5-serial H5PY_SYSTEM_LZF=1 dh_auto_build -a -D $(BUILD_DIR_SERIAL)
+# build serial build only for arch builds
+execute_after_dh_auto_build-arch: export http_proxy=127.0.0.1:9
+execute_after_dh_auto_build-arch: export https_proxy=127.0.0.1:9
+execute_after_dh_auto_build-arch:
+	PYBUILD_NAME=$(PYBUILD_NAME_SERIAL) HDF5_PKGCONFIG_NAME=hdf5-serial HDF5_USE_SHLIB=yes H5PY_SYSTEM_LZF=1 dh_auto_build -a -D $(BUILD_DIR_SERIAL)
 	for DIR in $$(find .pybuild/cpython3*serial -name build); do \
 		cp -r $(CURDIR)/debian/wrapper_module/h5py/* $$DIR/h5py/; \
 	done
-	cd $(BUILD_DIR_SERIAL)/lzf; $(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) $(shell pkg-config --cflags --libs hdf5-serial liblzf) -fPIC -shared lzf_filter.c -o liblzf_filter.so
+	cd $(BUILD_DIR_SERIAL)/lzf; $(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) $(shell $(PKG_CONFIG) --cflags --libs hdf5-serial liblzf) -fPIC -shared lzf_filter.c -o liblzf_filter.so
 
-override_dh_auto_build-indep: export http_proxy=127.0.0.1:9
-override_dh_auto_build-indep: export https_proxy=127.0.0.1:9
-override_dh_auto_build-indep: build-mpi
+
 ifeq (,$(filter nodoc,$(DEB_BUILD_OPTIONS)))
+execute_after_dh_auto_build-indep: export http_proxy=127.0.0.1:9
+execute_after_dh_auto_build-indep: export https_proxy=127.0.0.1:9
+execute_after_dh_auto_build-indep:
 	PYTHONPATH=$(PYBUILD_DIR_MPI) mpirun -n 1 $(MAKE) -C docs html
 	PYTHONPATH=$(PYBUILD_DIR_MPI) mpirun -n 1 $(MAKE) -C docs_api html
 endif
 
 override_dh_auto_test-indep:
 
+# should be running build-time tests with the --no-network option, not -m "not nonetwork"
+# but it is not recognised inside h5py.run_tests()
+# see https://github.com/h5py/h5py/issues/2286
 override_dh_auto_test-arch:
 ifneq (nocheck,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
+	if [ "x$(SKIP_TESTS)" != "x" ]; then echo "skipping tests: $(SKIP_TESTS)"; fi
 	set -e; \
 	for DIR in $$(find $(CURDIR)/.pybuild/cpython3*serial -name build); do \
 		echo "Running serial tests on $$DIR"; \
 		rm -rf $$DIR/h5py/_debian_h5py_serial/tests/data_files ; \
 		cp -r $(CURDIR)/h5py/tests/data_files $$DIR/h5py/_debian_h5py_serial/tests/; \
-		cd $$DIR/..; H5PY_NO_NETWORK_TEST=1 PYTHONPATH=$$DIR python$$(echo $$DIR | sed -e 's@.*cpython._\([[:digit:].]*\(_dbg\)*\).*_h5py.*@\1@g; s/_/-/') \
-		-c "from sys import exit; import h5py; exit(h5py.run_tests('-v'))"; \
+		cd $$DIR/..; PYTHONPATH=$$DIR python$$(echo $$DIR | sed -e 's@.*cpython._\([[:digit:].]*\(_dbg\)*\).*_h5py.*@\1@g; s/_/-/') \
+		-c "from sys import exit; import h5py; exit(h5py.run_tests('-v -k \"$(SKIP_TESTS)\"'))"; \
 		rm -rf $$DIR/h5py/_debian_h5py_serial/tests/data_files ; \
 	cd ../..; done;
+	set -e; \
 	for DIR in $$(find $(CURDIR)/.pybuild/cpython3*mpi -name build); do \
 		echo "Running MPI tests on $$DIR"; \
 		rm -rf $$DIR/h5py/_debian_h5py_mpi/tests/data_files ; \
 		cp -r $(CURDIR)/h5py/tests/data_files $$DIR/h5py/_debian_h5py_mpi/tests/; \
-		cd $$DIR/..; H5PY_NO_NETWORK_TEST=1 PYTHONPATH=$$DIR mpirun -n 2 python$$(echo $$DIR | sed -e 's@.*cpython._\([[:digit:].]*\(_dbg\)*\).*_h5py.*@\1@g; s/_/-/') \
-		-c "from sys import exit; import h5py; exit(h5py.run_tests('-v --with-mpi -p no:xvfb'))"; \
+		cd $$DIR/..; PYTHONPATH=$$DIR mpirun -n 2 python$$(echo $$DIR | sed -e 's@.*cpython._\([[:digit:].]*\(_dbg\)*\).*_h5py.*@\1@g; s/_/-/') \
+		-c "from sys import exit; import h5py; exit(h5py.run_tests('-v --with-mpi -p no:xvfb -k \"$(SKIP_TESTS)\"'))"; \
 		rm -rf $$DIR/h5py/_debian_h5py_mpi/tests/data_files ; \
 	cd ../..; done;
 else
 	echo "Tests not run since nocheck was set in DEB_BUILD_OPTIONS"
 endif
 
-override_dh_auto_install-indep:
+dh_auto_install_mpi: $(eval SHELL := /bin/bash)
+	PYBUILD_NAME=$(PYBUILD_NAME_MPI) CC=h5pcc HDF5_PKGCONFIG_NAME=hdf5-mpi HDF5_USE_SHLIB=yes HDF5_MPI=ON H5PY_SYSTEM_LZF=1 dh_auto_install -D $(BUILD_DIR_MPI)
 
-override_dh_auto_install-arch: $(eval SHELL := /bin/bash)
-	PYBUILD_NAME=$(PYBUILD_NAME_SERIAL) HDF5_PKGCONFIG_NAME=hdf5-serial H5PY_SYSTEM_LZF=1 dh_auto_install -a -D $(BUILD_DIR_SERIAL)
-	PYBUILD_NAME=$(PYBUILD_NAME_MPI) CC=h5pcc HDF5_PKGCONFIG_NAME=hdf5-mpi HDF5_MPI=ON H5PY_SYSTEM_LZF=1 dh_auto_install -a -D $(BUILD_DIR_MPI)
+override_dh_auto_install-arch: dh_auto_install_mpi $(eval SHELL := /bin/bash)
+	PYBUILD_NAME=$(PYBUILD_NAME_SERIAL) HDF5_PKGCONFIG_NAME=hdf5-serial HDF5_USE_SHLIB=yes H5PY_SYSTEM_LZF=1 dh_auto_install -D $(BUILD_DIR_SERIAL)
+
+override_dh_auto_install-indep: dh_auto_install_mpi
+	mkdir -p debian/python3-h5py/usr/lib/python3/dist-packages/h5py
+	cp debian/wrapper_module/h5py/__init__.py debian/python3-h5py/usr/lib/python3/dist-packages/h5py
+	cp -r debian/python3-h5py-mpi/usr/lib/python$(PY3VER)/dist-packages/h5py-*.dist-info debian/python3-h5py/usr/lib/python3/dist-packages/
+	sed "/Requires-Dist: mpi4py/d" -i debian/python3-h5py/usr/lib/python3/dist-packages/h5py*.dist-info/METADATA
+	rm -f debian/python3-h5py/usr/lib/python3/dist-packages/h5py-*.dist-info/RECORD
+	rm -f debian/python3-h5py/usr/lib/python3/dist-packages/h5py-*.dist-info/LICENSE
+	rm -f debian/python3-h5py/usr/lib/python3/dist-packages/h5py-*.dist-info/WHEEL
+
+execute_after_dh_auto_install-arch:
+	for d in debian/python3-h5py-serial/usr/lib/python3*/dist-packages/h5py-*.dist-info; do \
+	    sed "s/^h5py-\(.*.dist-info\)/h5py.$(SUBMODULE_SERIAL)-\1/" -i $$d/RECORD; \
+	    mv $$d `echo $$d | sed "s|-packages/h5py-|-packages/h5py.$(SUBMODULE_SERIAL)-|"`; \
+	done
+	for d in debian/python3-h5py-mpi/usr/lib/python3*/dist-packages/h5py-*.dist-info; do \
+	    sed "s/^h5py-\(.*.dist-info\)/h5py.$(SUBMODULE_MPI)-\1/" -i $$d/RECORD; \
+	    mv $$d `echo $$d | sed "s|-packages/h5py-|-packages/h5py.$(SUBMODULE_MPI)-|"`; \
+	done
+	sed "s/Name: h5py/Name: h5py.$(SUBMODULE_SERIAL:_=-)/" -i debian/python3-h5py-serial/usr/lib/python3*/dist-packages/h5py*.dist-info/METADATA
+	sed "s/h5py/h5py.$(SUBMODULE_SERIAL)/" -i debian/python3-h5py-serial/usr/lib/python3*/dist-packages/h5py*.dist-info/top_level.txt
+	sed "s/Name: h5py/Name: h5py.$(SUBMODULE_MPI:_=-)/" -i debian/python3-h5py-mpi/usr/lib/python3*/dist-packages/h5py*.dist-info/METADATA
+	sed "s/h5py/h5py.$(SUBMODULE_MPI)/" -i debian/python3-h5py-mpi/usr/lib/python3*/dist-packages/h5py*.dist-info/top_level.txt
 
 override_dh_install-arch:
 	rm -rf debian/python3-h5py-serial/usr/lib/python*/dist-packages/h5py/_debian_h5py_serial/tests/data_files
 	rm -rf debian/python3-h5py-mpi/usr/lib/python*/dist-packages/h5py/_debian_h5py_mpi/tests/data_files
 	dh_install -a
-	dh_install -phdf5-plugin-lzf  $(BUILD_DIR_SERIAL)/lzf/liblzf_filter.so  $(shell pkg-config --variable=PluginDir hdf5-serial)
-	dh_install -phdf5-plugin-lzf  $(BUILD_DIR_MPI)/lzf/liblzf_filter.so     $(shell pkg-config --variable=PluginDir hdf5-mpi)
+	dh_install -phdf5-plugin-lzf  $(BUILD_DIR_SERIAL)/lzf/liblzf_filter.so  $(shell $(PKG_CONFIG) --variable=PluginDir hdf5-serial)
+	dh_install -phdf5-plugin-lzf  $(BUILD_DIR_MPI)/lzf/liblzf_filter.so     $(shell $(PKG_CONFIG) --variable=PluginDir hdf5-mpi)
 
 override_dh_python3-arch:
 	PYBUILD_NAME=$(PYBUILD_NAME_SERIAL) dh_python3
 	PYBUILD_NAME=$(PYBUILD_NAME_MPI) dh_python3
 	dh_numpy3
 	
-	serial_egg=debian/python3-h5py-serial/usr/lib/python3/dist-packages/h5py.$(SUBMODULE_SERIAL)-*.egg-info; \
-	h5py_egg=$$(echo $${serial_egg} | sed "s/h5py.$(SUBMODULE_SERIAL)/h5py/" ); \
-	cp -ra $${serial_egg} $${h5py_egg}; \
-	sed "s/Name: h5py.*/Name: h5py/" -i $${h5py_egg}/PKG-INFO
-	
-	rm -f debian/python3-h5py-mpi/usr/lib/python3/dist-packages/h5py/__init__.py
-
-override_dh_installdocs-indep:
-	dh_installdocs
-	grep "https://cdnjs.cloudflare.com/ajax/libs/mathjax/.*/latest.js" debian/python-h5py-doc/usr/share/doc/python-h5py-doc/html/* -R --files-with-matches | xargs -r sed "s|https://cdnjs.cloudflare.com/ajax/libs/mathjax/.*/latest.js|file:///usr/share/javascript/mathjax/unpacked/latest.js|g" -i
+	rm -f debian/python3-h5py-*/usr/lib/python3/dist-packages/h5py/__init__.py

@@ -51,16 +51,68 @@ build in a serial job.
 (technically this is not a serial job as such, but an MPI job with one
 process)
 
-2) You may import the MPI build directly, using
+2) You can force the use of the MPI build by setting
+the environment variable H5PY_ALWAYS_USE_MPI.
+
+3) Alternatively, You may import the MPI build directly, using
   import h5py._debian_h5py_mpi as h5py
 instead of
   import h5py
 
-3) Alternatively, you can force the use of the MPI build by setting
-the environment variable H5PY_ALWAYS_USE_MPI.
-
-Option 2 is probably the most transparent, but the other alternatives
+Option 2 is probably the most explicit, but the other alternatives
 will work.
 
 Obviously python3-h5py-mpi must be installed for any of these to be
 effective.
+
+It is possible to install python3-h5py-mpi without installing
+python3-h5py-serial. In this case h5py-mpi will be loaded in serial
+jobs as a fallback, and no further action or environment variable
+needs to be set.
+
+
+Enforcing use of h5py-serial in an MPI job
+==========================================
+
+Normally h5py-serial is expected to be used in serial jobs, and
+h5py-mpi is expected to be used in MPI jobs. But it is possible to
+force the use of one in the runtime context of the other.
+
+The fallback mechanism means that if the expected variant is not
+found, then the other variant is loaded instead.
+
+This fallback mechanism means that if python3-h5py-serial is installed
+while python3-h5py-mpi is not installed, then MPI jobs will load
+h5py-serial. The fallback works both ways: if python3-h5py-mpi is
+installed while python3-h5py-serial is not installed, then serial jobs
+will load h5py-mpi.
+
+There may be particular circumstances in which you want to access the
+serial build of HDF5 even from a MPI job.  This might be the case if
+you have an app that accesses the HDF5 API directly, and is
+built against libhdf5-serial.so instead of libhdf5-*mpi.so not. If the same app
+also uses h5py for convenience, then arguably it should use the equivalent
+build, i.e. h5py-serial not h5py-mpi, even if it might be run as an
+MPI job.
+
+In this case you have two options for enforcing the use of the serial
+build in a MPI job.
+
+1) You can force the use of the serial build by setting
+the environment variable H5PY_NEVER_USE_MPI.
+
+2) You may import the serial build directly, using
+  import h5py._debian_h5py_serial as h5py
+instead of
+  import h5py
+
+Obviously python3-h5py-serial must be installed for any of these to be
+effective.
+
+If both H5PY_ALWAYS_USE_MPI and H5PY_NEVER_USE_MPI are set, then
+H5PY_ALWAYS_USE_MPI takes precedence: h5py-mpi will be loaded.
+
+It is possible to install python3-h5py-serial without installing
+python3-h5py-mpi. In this case h5py-serial will be loaded in MPI
+jobs as a fallback, and no further action or environment variable
+needs to be set.

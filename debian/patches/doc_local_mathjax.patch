@@ -1,0 +1,13 @@
+Index: h5py/docs/conf.py
+===================================================================
+--- h5py.orig/docs/conf.py	2023-07-10 00:03:32.099387083 +0200
++++ h5py/docs/conf.py	2023-07-10 00:03:32.091387016 +0200
+@@ -44,6 +44,8 @@
+ # Add any paths that contain templates here, relative to this directory.
+ templates_path = ['_templates']
+ 
++mathjax_path = 'file:///usr/share/javascript/mathjax/MathJax.js?config=TeX-AMS-MML_HTMLorMML'
++
+ # The suffix of source filenames.
+ source_suffix = '.rst'
+ 

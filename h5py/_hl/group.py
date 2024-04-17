@@ -37,15 +37,13 @@ class Group(HLObject, MutableMappingHDF5):
         with phil:
             if not isinstance(bind, h5g.GroupID):
                 raise ValueError("%s is not a GroupID" % bind)
-            super(Group, self).__init__(bind)
-
+            super().__init__(bind)
 
     _gcpl_crt_order = h5p.create(h5p.GROUP_CREATE)
     _gcpl_crt_order.set_link_creation_order(
         h5p.CRT_ORDER_TRACKED | h5p.CRT_ORDER_INDEXED)
     _gcpl_crt_order.set_attr_creation_order(
         h5p.CRT_ORDER_TRACKED | h5p.CRT_ORDER_INDEXED)
-
 
     def create_group(self, name, track_order=None):
         """ Create and return a new subgroup.
@@ -130,13 +128,49 @@ class Group(HLObject, MutableMappingHDF5):
             Each name must be a str, bytes, or os.PathLike; each offset and
             size, an integer.  If only a name is given instead of an iterable
             of tuples, it is equivalent to [(name, 0, h5py.h5f.UNLIMITED)].
+        efile_prefix
+            (String) External dataset file prefix for dataset access property
+            list. Does not persist in the file.
+        virtual_prefix
+            (String) Virtual dataset file prefix for dataset access property
+            list. Does not persist in the file.
         allow_unknown_filter
             (T/F) Do not check that the requested filter is available for use.
             This should only be used with ``write_direct_chunk``, where the caller
             compresses the data before handing it to h5py.
+        rdcc_nbytes
+            Total size of the dataset's chunk cache in bytes. The default size
+            is 1024**2 (1 MiB).
+        rdcc_w0
+            The chunk preemption policy for this dataset.  This must be
+            between 0 and 1 inclusive and indicates the weighting according to
+            which chunks which have been fully read or written are penalized
+            when determining which chunks to flush from cache.  A value of 0
+            means fully read or written chunks are treated no differently than
+            other chunks (the preemption is strictly LRU) while a value of 1
+            means fully read or written chunks are always preempted before
+            other chunks.  If your application only reads or writes data once,
+            this can be safely set to 1.  Otherwise, this should be set lower
+            depending on how often you re-read or re-write the same data.  The
+            default value is 0.75.
+        rdcc_nslots
+            The number of chunk slots in the dataset's chunk cache. Increasing
+            this value reduces the number of cache collisions, but slightly
+            increases the memory used. Due to the hashing strategy, this value
+            should ideally be a prime number. As a rule of thumb, this value
+            should be at least 10 times the number of chunks that can fit in
+            rdcc_nbytes bytes. For maximum performance, this value should be set
+            approximately 100 times that number of chunks. The default value is
+            521.
         """
         if 'track_order' not in kwds:
             kwds['track_order'] = h5.get_config().track_order
+
+        if 'efile_prefix' in kwds:
+            kwds['efile_prefix'] = self._e(kwds['efile_prefix'])
+
+        if 'virtual_prefix' in kwds:
+            kwds['virtual_prefix'] = self._e(kwds['virtual_prefix'])
 
         with phil:
             group = self
@@ -218,28 +252,46 @@ class Group(HLObject, MutableMappingHDF5):
         the same shape and a conversion-compatible dtype to be returned.  If
         True, the shape and dtype must match exactly.
 
+        If keyword "maxshape" is given, the maxshape and dtype must match
+        instead.
+
+        If any of the keywords "rdcc_nslots", "rdcc_nbytes", or "rdcc_w0" are
+        given, they will be used to configure the dataset's chunk cache.
+
         Other dataset keywords (see create_dataset) may be provided, but are
         only used if a new dataset is to be created.
 
         Raises TypeError if an incompatible object already exists, or if the
-        shape or dtype don't match according to the above rules.
+        shape, maxshape or dtype don't match according to the above rules.
         """
+        if 'efile_prefix' in kwds:
+            kwds['efile_prefix'] = self._e(kwds['efile_prefix'])
+
+        if 'virtual_prefix' in kwds:
+            kwds['virtual_prefix'] = self._e(kwds['virtual_prefix'])
+
         with phil:
-            if not name in self:
+            if name not in self:
                 return self.create_dataset(name, *(shape, dtype), **kwds)
 
             if isinstance(shape, int):
                 shape = (shape,)
 
-            dset = self[name]
-            if not isinstance(dset, dataset.Dataset):
+            try:
+                dsid = dataset.open_dset(self, self._e(name), **kwds)
+                dset = dataset.Dataset(dsid)
+            except KeyError:
+                dset = self[name]
                 raise TypeError("Incompatible object (%s) already exists" % dset.__class__.__name__)
 
-            if not shape == dset.shape:
-                raise TypeError("Shapes do not match (existing %s vs new %s)" % (dset.shape, shape))
+            if shape != dset.shape:
+                if "maxshape" not in kwds:
+                    raise TypeError("Shapes do not match (existing %s vs new %s)" % (dset.shape, shape))
+                elif kwds["maxshape"] != dset.maxshape:
+                    raise TypeError("Max shapes do not match (existing %s vs new %s)" % (dset.maxshape, kwds["maxshape"]))
 
             if exact:
-                if not dtype == dset.dtype:
+                if dtype != dset.dtype:
                     raise TypeError("Datatypes do not exactly match (existing %s vs new %s)" % (dset.dtype, dtype))
             elif not numpy.can_cast(dtype, dset.dtype):
                 raise TypeError("Datatypes cannot be safely cast (existing %s vs new %s)" % (dset.dtype, dtype))
@@ -286,7 +338,7 @@ class Group(HLObject, MutableMappingHDF5):
         isn't a group.
         """
         with phil:
-            if not name in self:
+            if name not in self:
                 return self.create_group(name)
             grp = self[name]
             if not isinstance(grp, Group):
@@ -305,7 +357,7 @@ class Group(HLObject, MutableMappingHDF5):
             oid = h5o.open(self.id, self._e(name), lapl=self._lapl)
         else:
             raise TypeError("Accessing a group is done with bytes or str, "
-                            " not {}".format(type(name)))
+                            "not {}".format(type(name)))
 
         otype = h5i.get_type(oid)
         if otype == h5i.GROUP:
@@ -349,11 +401,11 @@ class Group(HLObject, MutableMappingHDF5):
                 except KeyError:
                     return default
 
-            if not name in self:
+            if name not in self:
                 return default
 
             elif getclass and not getlink:
-                typecode = h5o.get_info(self.id, self._e(name)).type
+                typecode = h5o.get_info(self.id, self._e(name), lapl=self._lapl).type
 
                 try:
                     return {h5o.TYPE_GROUP: Group,
@@ -363,18 +415,18 @@ class Group(HLObject, MutableMappingHDF5):
                     raise TypeError("Unknown object type")
 
             elif getlink:
-                typecode = self.id.links.get_info(self._e(name)).type
+                typecode = self.id.links.get_info(self._e(name), lapl=self._lapl).type
 
                 if typecode == h5l.TYPE_SOFT:
                     if getclass:
                         return SoftLink
-                    linkbytes = self.id.links.get_val(self._e(name))
+                    linkbytes = self.id.links.get_val(self._e(name), lapl=self._lapl)
                     return SoftLink(self._d(linkbytes))
 
                 elif typecode == h5l.TYPE_EXTERNAL:
                     if getclass:
                         return ExternalLink
-                    filebytes, linkbytes = self.id.links.get_val(self._e(name))
+                    filebytes, linkbytes = self.id.links.get_val(self._e(name), lapl=self._lapl)
                     return ExternalLink(
                         filename_decode(filebytes), self._d(linkbytes)
                     )
@@ -409,7 +461,6 @@ class Group(HLObject, MutableMappingHDF5):
             values are stored as scalar datasets. Raise ValueError if we
             can't understand the resulting array dtype.
         """
-        do_link = False
         with phil:
             name, lcpl = self._e(name, lcpl=True)
 
@@ -417,11 +468,12 @@ class Group(HLObject, MutableMappingHDF5):
                 h5o.link(obj.id, self.id, name, lcpl=lcpl, lapl=self._lapl)
 
             elif isinstance(obj, SoftLink):
-                self.id.links.create_soft(name, self._e(obj.path),
-                              lcpl=lcpl, lapl=self._lapl)
+                self.id.links.create_soft(name, self._e(obj.path), lcpl=lcpl, lapl=self._lapl)
 
             elif isinstance(obj, ExternalLink):
-                do_link = True
+                fn = filename_encode(obj.filename)
+                self.id.links.create_external(name, fn, self._e(obj.path),
+                                              lcpl=lcpl, lapl=self._lapl)
 
             elif isinstance(obj, numpy.dtype):
                 htype = h5t.py_create(obj, logical=True)
@@ -430,12 +482,6 @@ class Group(HLObject, MutableMappingHDF5):
             else:
                 ds = self.create_dataset(None, data=obj)
                 h5o.link(ds.id, self.id, name, lcpl=lcpl)
-
-        if do_link:
-            fn = filename_encode(obj.filename)
-            with phil:
-                self.id.links.create_external(name, fn, self._e(obj.path),
-                                              lcpl=lcpl, lapl=self._lapl)
 
     @with_phil
     def __delitem__(self, name):
@@ -462,6 +508,10 @@ class Group(HLObject, MutableMappingHDF5):
     @with_phil
     def __contains__(self, name):
         """ Test if a member name exists """
+        if hasattr(h5g, "_path_valid"):
+            if not self.id:
+                return False
+            return h5g._path_valid(self.id, self._e(name), self._lapl)
         return self._e(name) in self.id
 
     def copy(self, source, dest, name=None,
@@ -561,7 +611,7 @@ class Group(HLObject, MutableMappingHDF5):
                                lapl=self._lapl, lcpl=self._lcpl)
 
     def visit(self, func):
-        """ Recursively visit all names in this group and subgroups (HDF5 1.8).
+        """ Recursively visit all names in this group and subgroups.
 
         You supply a callable (function, method or callable object); it
         will be called exactly once for each link in this group and every
@@ -587,7 +637,7 @@ class Group(HLObject, MutableMappingHDF5):
             return h5o.visit(self.id, proxy)
 
     def visititems(self, func):
-        """ Recursively visit names and objects in this group (HDF5 1.8).
+        """ Recursively visit names and objects in this group.
 
         You supply a callable (function, method or callable object); it
         will be called exactly once for each link in this group and every
@@ -630,7 +680,7 @@ class Group(HLObject, MutableMappingHDF5):
         return r
 
 
-class HardLink(object):
+class HardLink:
 
     """
         Represents a hard link in an HDF5 file.  Provided only so that
@@ -640,7 +690,7 @@ class HardLink(object):
     pass
 
 
-class SoftLink(object):
+class SoftLink:
 
     """
         Represents a symbolic ("soft") link in an HDF5 file.  The path
@@ -660,7 +710,7 @@ class SoftLink(object):
         return '<SoftLink to "%s">' % self.path
 
 
-class ExternalLink(object):
+class ExternalLink:
 
     """
         Represents an HDF5 external link.  Paths may be absolute or relative.

@@ -41,6 +41,7 @@ MPIO = H5FD_MPIO
 MPIPOSIX = -1
 MULTI = H5FD_MULTI
 SEC2 = H5FD_SEC2
+DIRECT = H5FD_DIRECT
 STDIO = H5FD_STDIO
 IF HDF5_VERSION >= (1, 10, 6):
     ROS3D = H5FD_ROS3
@@ -215,5 +216,7 @@ info.fl_map = [H5FD_MEM_SUPER,  # default
                H5FD_MEM_SUPER,  # lheap
                H5FD_MEM_SUPER   # ohdr
 	       ]
+IF HDF5_VERSION >= (1, 14, 0):
+    info.version = H5FD_CLASS_VERSION
 
 fileobj_driver = H5FDregister(&info)

@@ -1,7 +1,5 @@
-Index: h5py/setup_build.py
-===================================================================
---- h5py.orig/setup_build.py	2021-07-08 15:03:58.831063193 +0200
-+++ h5py/setup_build.py	2021-07-08 15:03:58.827063185 +0200
+--- a/setup_build.py
++++ b/setup_build.py
 @@ -18,6 +18,8 @@
  import api_gen
  from setup_configure import BuildConfig
@@ -11,7 +9,7 @@ Index: h5py/setup_build.py
  
  def localpath(*args):
      return op.abspath(op.join(op.dirname(__file__), *args))
-@@ -108,9 +110,13 @@
+@@ -116,9 +118,13 @@
              #settings['runtime_library_dirs'] = settings['library_dirs']
  
          def make_extension(module):
@@ -27,9 +25,9 @@ Index: h5py/setup_build.py
  
          return [make_extension(m) for m in MODULES]
  
-@@ -132,14 +138,14 @@
-         config = BuildConfig.from_env()
-         config.summarise()
+@@ -149,14 +155,14 @@
+                 f"{config.hdf5_version} from environment variable or library)"
+             )
  
 -        defs_file = localpath('h5py', 'defs.pyx')
 -        func_file = localpath('h5py', 'api_functions.txt')
@@ -45,14 +43,12 @@ Index: h5py/setup_build.py
 +            api_gen.run(flavour=flavour)
  
          # Rewrite config.pxi file if needed
-         s = """\
-Index: h5py/api_gen.py
-===================================================================
---- h5py.orig/api_gen.py	2021-07-08 15:03:58.831063193 +0200
-+++ h5py/api_gen.py	2021-07-08 15:03:58.827063185 +0200
-@@ -166,15 +166,15 @@
+         s = f"""\
+--- a/api_gen.py
++++ b/api_gen.py
+@@ -170,15 +170,15 @@
  
- class LineProcessor(object):
+ class LineProcessor:
  
 -    def run(self):
 +    def run(self, flavour=''):
@@ -71,7 +67,7 @@ Index: h5py/api_gen.py
  
          self.raw_defs.write(raw_preamble)
          self.cython_defs.write(def_preamble)
-@@ -296,9 +296,9 @@
+@@ -303,9 +303,9 @@
          self.cython_imp.write(imp)
  
  

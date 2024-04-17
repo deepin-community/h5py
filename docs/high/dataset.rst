@@ -503,12 +503,8 @@ Reference
             >>> out.dtype
             dtype('int16')
 
-        .. versionchanged:: 3.0
-           Allowed reading through the wrapper object. In earlier versions,
-           :meth:`astype` had to be used as a context manager:
-
-               >>> with dset.astype('int16'):
-               ...     out = dset[:]
+        .. versionchanged:: 3.9
+           :meth:`astype` can no longer be used as a context manager.
 
     .. method:: asstr(encoding=None, errors='strict')
 
@@ -661,6 +657,11 @@ Reference
     .. attribute:: dims
 
         Access to :ref:`dimension_scales`.
+
+    .. attribute:: is_scale
+
+        Return ``True`` if the dataset is also a :ref:`dimension scale <dimension_scales>`,
+        ``False`` otherwise.
 
     .. attribute:: attrs
 
