@@ -84,11 +84,6 @@ class TestH5DSBindings(BaseDataset):
             )
         self.assertEqual(h5py.h5ds.get_num_scales(self.f['data'].id, 2), 1)
 
-    # TODO: update condition once the bug is fixed upstream
-    @ut.skipUnless(
-        h5py.version.hdf5_version_tuple > (2, 0, 0),
-        "Reading non-existent label segfaults"
-        )
     def test_label_dimensionscale(self):
         self.assertEqual(h5py.h5ds.get_label(self.f['data'].id, 0), b'z')
         self.assertEqual(h5py.h5ds.get_label(self.f['data'].id, 1), b'')
@@ -211,3 +206,12 @@ class TestDimensionsHighLevel(BaseDataset):
         self.assertEqual(len(self.f['data2'].dims[0]), 0)
         self.assertEqual(len(self.f['data2'].dims[1]), 1)
         self.assertEqual(len(self.f['data2'].dims[2]), 2)
+
+    def test_is_scale(self):
+        """Test Dataset.is_scale property"""
+        self.assertTrue(self.f['x1'].is_scale)
+        self.assertTrue(self.f['x2'].is_scale)
+        self.assertTrue(self.f['y1'].is_scale)
+        self.assertFalse(self.f['z1'].is_scale)
+        self.assertFalse(self.f['data'].is_scale)
+        self.assertFalse(self.f['data2'].is_scale)

@@ -374,50 +374,49 @@ cdef class PropFCID(PropOCID):
         H5Pget_link_creation_order(self.id, &flags)
         return flags
 
-    if HDF5_VERSION >= (1, 10, 1):
-        @with_phil
-        def set_file_space_strategy(self, unsigned int strategy, bint persist,
-                unsigned long long threshold):
-            """ (UINT strategy, BOOL persist, ULONGLONG threshold)
+    @with_phil
+    def set_file_space_strategy(self, unsigned int strategy, bint persist,
+            unsigned long long threshold):
+        """ (UINT strategy, BOOL persist, ULONGLONG threshold)
 
-            Set the file space handling strategy and persisting free-space values.
-            """
-            H5Pset_file_space_strategy(self.id, <H5F_fspace_strategy_t>strategy,
-                    <hbool_t>persist, <hsize_t>threshold)
+        Set the file space handling strategy and persisting free-space values.
+        """
+        H5Pset_file_space_strategy(self.id, <H5F_fspace_strategy_t>strategy,
+                <hbool_t>persist, <hsize_t>threshold)
 
-        @with_phil
-        def get_file_space_strategy(self):
-            """ () => TUPLE(UINT strategy, BOOL persist, ULONGLONG threshold)
+    @with_phil
+    def get_file_space_strategy(self):
+        """ () => TUPLE(UINT strategy, BOOL persist, ULONGLONG threshold)
 
-            Retrieve the file space handling strategy, persisting free-space
-            condition and threshold value for a file creation property list.
-            """
-            cdef H5F_fspace_strategy_t strategy
-            cdef hbool_t persist
-            cdef hsize_t threshold
+        Retrieve the file space handling strategy, persisting free-space
+        condition and threshold value for a file creation property list.
+        """
+        cdef H5F_fspace_strategy_t strategy
+        cdef hbool_t persist
+        cdef hsize_t threshold
 
-            H5Pget_file_space_strategy(self.id, &strategy, &persist, &threshold)
-            return (strategy, persist, threshold)
+        H5Pget_file_space_strategy(self.id, &strategy, &persist, &threshold)
+        return (strategy, persist, threshold)
 
-        @with_phil
-        def set_file_space_page_size(self, hsize_t fsp_size):
-            """ (LONG fsp_size)
+    @with_phil
+    def set_file_space_page_size(self, hsize_t fsp_size):
+        """ (LONG fsp_size)
 
-            Set the file space page size used in paged aggregation and paged
-            buffering. Minimum page size is 512 bytes. A value less than 512 will raise
-            an error. The size set may not be changed for the life of the file.
-            """
-            H5Pset_file_space_page_size(self.id, <hsize_t>fsp_size)
+        Set the file space page size used in paged aggregation and paged
+        buffering. Minimum page size is 512 bytes. A value less than 512 will raise
+        an error. The size set may not be changed for the life of the file.
+        """
+        H5Pset_file_space_page_size(self.id, <hsize_t>fsp_size)
 
-        @with_phil
-        def get_file_space_page_size(self):
-            """ () -> LONG fsp_size
+    @with_phil
+    def get_file_space_page_size(self):
+        """ () -> LONG fsp_size
 
-            Retrieve the file space page size.
-            """
-            cdef hsize_t fsp_size
-            H5Pget_file_space_page_size(self.id, &fsp_size)
-            return fsp_size
+        Retrieve the file space page size.
+        """
+        cdef hsize_t fsp_size
+        H5Pget_file_space_page_size(self.id, &fsp_size)
+        return fsp_size
 
 # Dataset creation
 cdef class PropDCID(PropOCID):
@@ -504,9 +503,25 @@ cdef class PropDCID(PropOCID):
         0-dimensional NumPy array; otherwise, the value will be read from
         the first element.
         """
+        from .h5t import check_string_dtype
         cdef TypeID tid
+        cdef char * c_ptr
 
         check_numpy_read(value, -1)
+
+        # check for strings
+        # create correct typeID and pointer to c_str
+        string_info = check_string_dtype(value.dtype)
+        if string_info is not None:
+            # if needed encode fill_value
+            fill_value = value.item()
+            if not isinstance(fill_value, bytes):
+                fill_value = fill_value.encode(string_info.encoding)
+            c_ptr = fill_value
+            tid = py_create(value.dtype, logical=1)
+            H5Pset_fill_value(self.id, tid.id, &c_ptr)
+            return
+
         tid = py_create(value.dtype)
         H5Pset_fill_value(self.id, tid.id, value.data)
 
@@ -519,12 +534,32 @@ cdef class PropDCID(PropOCID):
         converted to match the array dtype.  If the array has nonzero
         rank, only the first element will contain the value.
         """
+        from .h5t import check_string_dtype
         cdef TypeID tid
+        cdef char * c_ptr = NULL
 
         check_numpy_write(value, -1)
+
+        # check for vlen strings
+        # create correct typeID and convert from c_str pointer to string
+        string_info = check_string_dtype(value.dtype)
+        if string_info is not None and string_info.length is None:
+            tid = py_create(value.dtype, logical=1)
+            ret = H5Pget_fill_value(self.id, tid.id, &c_ptr)
+            if c_ptr == NULL:
+                # If the pointer is NULL (either the value did not get changed,
+                # or maybe the 0 length string, it's unclear currently), if
+                # PyBytes_FromString is called on the pointer, we get a
+                # segfault. If we set the value to empty bytes, then we
+                # shouldn't segfault.
+                value[0] = b""
+                return
+            fill_value = c_ptr
+            value[0] = fill_value
+            return
+
         tid = py_create(value.dtype)
         H5Pget_fill_value(self.id, tid.id, value.data)
-
 
     @with_phil
     def fill_value_defined(self):
@@ -852,92 +887,89 @@ cdef class PropDCID(PropOCID):
         return result
 
     # === Virtual dataset functions ===========================================
+    @with_phil
+    def set_virtual(self, SpaceID vspace not None, char* src_file_name,
+                    char* src_dset_name, SpaceID src_space not None):
+        """(SpaceID vspace, STR src_file_name, STR src_dset_name, SpaceID src_space)
 
-    IF HDF5_VERSION >= VDS_MIN_HDF5_VERSION:
+        Set the mapping between virtual and source datasets.
 
-        @with_phil
-        def set_virtual(self, SpaceID vspace not None, char* src_file_name,
-                        char* src_dset_name, SpaceID src_space not None):
-            """(SpaceID vspace, STR src_file_name, STR src_dset_name, SpaceID src_space)
+        The virtual dataset is described by its virtual dataspace (vspace)
+        to the elements. The source dataset is described by the name of the
+        file where it is located (src_file_name), the name of the dataset
+        (src_dset_name) and its dataspace (src_space).
+        """
+        H5Pset_virtual(self.id, vspace.id, src_file_name, src_dset_name, src_space.id)
 
-            Set the mapping between virtual and source datasets.
+    @with_phil
+    def get_virtual_count(self):
+        """() => UINT
 
-            The virtual dataset is described by its virtual dataspace (vspace)
-            to the elements. The source dataset is described by the name of the
-            file where it is located (src_file_name), the name of the dataset
-            (src_dset_name) and its dataspace (src_space).
-            """
-            H5Pset_virtual(self.id, vspace.id, src_file_name, src_dset_name, src_space.id)
+        Get the number of mappings for the virtual dataset.
+        """
+        cdef size_t count
+        H5Pget_virtual_count(self.id, &count)
+        return count
 
-        @with_phil
-        def get_virtual_count(self):
-            """() => UINT
+    @with_phil
+    def get_virtual_dsetname(self, size_t index=0):
+        """(UINT index=0) => STR
 
-            Get the number of mappings for the virtual dataset.
-            """
-            cdef size_t count
-            H5Pget_virtual_count(self.id, &count)
-            return count
+        Get the name of a source dataset used in the mapping of the virtual
+        dataset at the position index.
+        """
+        cdef char* name = NULL
+        cdef ssize_t size
 
-        @with_phil
-        def get_virtual_dsetname(self, size_t index=0):
-            """(UINT index=0) => STR
+        size = H5Pget_virtual_dsetname(self.id, index, NULL, 0)
+        name = <char*>emalloc(size+1)
+        try:
+            # TODO check return size
+            H5Pget_virtual_dsetname(self.id, index, name, <size_t>size+1)
+            src_dset_name = bytes(name).decode('utf-8')
+        finally:
+            efree(name)
 
-            Get the name of a source dataset used in the mapping of the virtual
-            dataset at the position index.
-            """
-            cdef char* name = NULL
-            cdef ssize_t size
+        return src_dset_name
 
-            size = H5Pget_virtual_dsetname(self.id, index, NULL, 0)
-            name = <char*>emalloc(size+1)
-            try:
-                # TODO check return size
-                H5Pget_virtual_dsetname(self.id, index, name, <size_t>size+1)
-                src_dset_name = bytes(name).decode('utf-8')
-            finally:
-                efree(name)
+    @with_phil
+    def get_virtual_filename(self, size_t index=0):
+        """(UINT index=0) => STR
 
-            return src_dset_name
+        Get the file name of a source dataset used in the mapping of the
+        virtual dataset at the position index.
+        """
+        cdef char* name = NULL
+        cdef ssize_t size
 
-        @with_phil
-        def get_virtual_filename(self, size_t index=0):
-            """(UINT index=0) => STR
+        size = H5Pget_virtual_filename(self.id, index, NULL, 0)
+        name = <char*>emalloc(size+1)
+        try:
+            # TODO check return size
+            H5Pget_virtual_filename(self.id, index, name, <size_t>size+1)
+            src_fname = bytes(name).decode('utf-8')
+        finally:
+            efree(name)
 
-            Get the file name of a source dataset used in the mapping of the
-            virtual dataset at the position index.
-            """
-            cdef char* name = NULL
-            cdef ssize_t size
+        return src_fname
 
-            size = H5Pget_virtual_filename(self.id, index, NULL, 0)
-            name = <char*>emalloc(size+1)
-            try:
-                # TODO check return size
-                H5Pget_virtual_filename(self.id, index, name, <size_t>size+1)
-                src_fname = bytes(name).decode('utf-8')
-            finally:
-                efree(name)
+    @with_phil
+    def get_virtual_vspace(self, size_t index=0):
+        """(UINT index=0) => SpaceID
 
-            return src_fname
+        Get a dataspace for the selection within the virtual dataset used
+        in the mapping.
+        """
+        return SpaceID(H5Pget_virtual_vspace(self.id, index))
 
-        @with_phil
-        def get_virtual_vspace(self, size_t index=0):
-            """(UINT index=0) => SpaceID
+    @with_phil
+    def get_virtual_srcspace(self, size_t index=0):
+        """(UINT index=0) => SpaceID
 
-            Get a dataspace for the selection within the virtual dataset used
-            in the mapping.
-            """
-            return SpaceID(H5Pget_virtual_vspace(self.id, index))
-
-        @with_phil
-        def get_virtual_srcspace(self, size_t index=0):
-            """(UINT index=0) => SpaceID
-
-            Get a dataspace for the selection within the source dataset used
-            in the mapping.
-            """
-            return SpaceID(H5Pget_virtual_srcspace(self.id, index))
+        Get a dataspace for the selection within the source dataset used
+        in the mapping.
+        """
+        return SpaceID(H5Pget_virtual_srcspace(self.id, index))
 
 # File access
 cdef class PropFAID(PropInstanceID):
@@ -1062,7 +1094,7 @@ cdef class PropFAID(PropInstanceID):
             """
             cdef H5FD_ros3_fapl_t config
             config.version = H5FD_CURR_ROS3_FAPL_T_VERSION
-            if len(aws_region) or len(secret_id) or len(secret_key):
+            if len(aws_region) and len(secret_id) and len(secret_key):
                 config.authenticate = <hbool_t>1
             else:
                 config.authenticate = <hbool_t>0
@@ -1083,6 +1115,36 @@ cdef class PropFAID(PropInstanceID):
             H5Pget_fapl_ros3(self.id, &config)
             return config
 
+        IF HDF5_VERSION >= (1, 14, 2):
+            @with_phil
+            def get_fapl_ros3_token(self):
+                """ () => BYTES token
+
+                Get session token from the file access property list.
+                """
+                cdef size_t size = 0
+                cdef char *token = NULL
+
+                size = H5FD_ROS3_MAX_SECRET_TOK_LEN + 1
+                try:
+                    token = <char*>emalloc(size)
+                    token[0] = 0
+                    H5Pget_fapl_ros3_token(self.id, size, token)
+                    pytoken = <bytes>token
+                finally:
+                    efree(token)
+
+                return pytoken
+
+
+            @with_phil
+            def set_fapl_ros3_token(self, char *token=""):
+                """ (BYTES token="")
+
+                Set session token in the file access property list.
+                """
+                H5Pset_fapl_ros3_token(self.id, token)
+
 
     @with_phil
     def set_fapl_log(self, char* logfile, unsigned int flags, size_t buf_size):
@@ -1101,6 +1163,37 @@ cdef class PropFAID(PropInstanceID):
         Select the "section-2" driver (h5fd.SEC2).
         """
         H5Pset_fapl_sec2(self.id)
+
+    if DIRECT_VFD:
+        @with_phil
+        def set_fapl_direct(self, size_t alignment=0, size_t block_size=0, size_t cbuf_size=0):
+            """(size_t alignment, size_t block_size, size_t cbuf_size)
+
+            Select the "direct" driver (h5fd.DIRECT).
+
+            Parameters:
+                hid_t fapl_id       IN: File access property list identifier
+                size_t alignment    IN: Required memory alignment boundary
+                size_t block_size   IN: File system block size
+                size_t cbuf_size    IN: Copy buffer size
+
+            Properites with value of 0 indicate that the HDF5 library should
+            choose the value.
+            """
+            H5Pset_fapl_direct(self.id, alignment, block_size, cbuf_size)
+
+        @with_phil
+        def get_fapl_direct(self):
+            """ () => (alignment, block_size, cbuf_size)
+
+            Retrieve the DIRECT VFD config
+            """
+            cdef size_t alignment
+            cdef size_t block_size
+            cdef size_t cbuf_size
+
+            H5Pget_fapl_direct(self.id, &alignment, &block_size, &cbuf_size)
+            return alignment, block_size, cbuf_size
 
 
     @with_phil
@@ -1154,7 +1247,9 @@ cdef class PropFAID(PropInstanceID):
         - h5fd.MPIO
         - h5fd.MULTI
         - h5fd.SEC2
+        - h5fd.DIRECT  (if available)
         - h5fd.STDIO
+        - h5fd.ROS3    (if available)
         """
         return H5Pget_driver(self.id)
 
@@ -1226,6 +1321,23 @@ cdef class PropFAID(PropInstanceID):
         """
         H5Pset_libver_bounds(self.id, <H5F_libver_t>low, <H5F_libver_t>high)
 
+    @with_phil
+    def set_meta_block_size(self, size_t size):
+        """ (UINT size)
+
+        Set the current minimum size, in bytes, of new metadata block allocations.
+        """
+        H5Pset_meta_block_size(self.id, size)
+
+    @with_phil
+    def get_meta_block_size(self):
+        """ () => UINT size
+
+        Get the current minimum size, in bytes, of new metadata block allocations.
+        """
+        cdef hsize_t size
+        H5Pget_meta_block_size(self.id, &size)
+        return size
 
     @with_phil
     def get_libver_bounds(self):
@@ -1335,61 +1447,57 @@ cdef class PropFAID(PropInstanceID):
         """
         H5Pset_alignment(self.id, threshold, alignment)
 
-    IF HDF5_VERSION >= (1, 8, 9):
+    @with_phil
+    def set_file_image(self, image):
+        """
+        Copy a file image into the property list. Passing None releases
+        any image currently loaded. The parameter image must either be
+        None or support the buffer protocol.
+        """
 
-        @with_phil
-        def set_file_image(self, image):
-            """
-            Copy a file image into the property list. Passing None releases
-            any image currently loaded. The parameter image must either be
-            None or support the buffer protocol.
-            """
+        cdef Py_buffer buf
 
-            cdef Py_buffer buf
+        if image is None:
+            H5Pset_file_image(self.id, NULL, 0)
+            return
 
-            if image is None:
-                H5Pset_file_image(self.id, NULL, 0)
-                return
+        if not PyObject_CheckBuffer(image):
+            raise TypeError("image must support the buffer protocol")
 
-            if not PyObject_CheckBuffer(image):
-                raise TypeError("image must support the buffer protocol")
+        PyObject_GetBuffer(image, &buf, PyBUF_SIMPLE)
 
-            PyObject_GetBuffer(image, &buf, PyBUF_SIMPLE)
+        try:
+            H5Pset_file_image(self.id, buf.buf, buf.len)
+        finally:
+            PyBuffer_Release(&buf)
 
-            try:
-                H5Pset_file_image(self.id, buf.buf, buf.len)
-            finally:
-                PyBuffer_Release(&buf)
+    @with_phil
+    def set_page_buffer_size(self, size_t buf_size, unsigned int min_meta_per=0,
+                             unsigned int min_raw_per=0):
+        """ (LONG buf_size, UINT min_meta_per, UINT min_raw_per)
 
-    IF HDF5_VERSION >= (1, 10, 1):
+        Set the maximum size in bytes of the page buffer. The default value is
+        zero, meaning that page buffering is disabled. When a non-zero page
+        buffer size is set, HDF5 library will enable page buffering if that size
+        is larger or equal than a single page size if a paged file space
+        strategy was set at file creation.
 
-        @with_phil
-        def set_page_buffer_size(self, size_t buf_size, unsigned int min_meta_per=0,
-                                 unsigned int min_raw_per=0):
-            """ (LONG buf_size, UINT min_meta_per, UINT min_raw_per)
+        The function also allows setting the criteria for metadata and raw data
+        page eviction from the buffer. The default values for both are zero.
+        """
+        H5Pset_page_buffer_size(self.id, buf_size, min_meta_per, min_raw_per)
 
-            Set the maximum size in bytes of the page buffer. The default value is
-            zero, meaning that page buffering is disabled. When a non-zero page
-            buffer size is set, HDF5 library will enable page buffering if that size
-            is larger or equal than a single page size if a paged file space
-            strategy was set at file creation.
+    @with_phil
+    def get_page_buffer_size(self):
+        """ () -> (LONG buf_size, UINT min_meta_per, UINT min_raw_per)
 
-            The function also allows setting the criteria for metadata and raw data
-            page eviction from the buffer. The default values for both are zero.
-            """
-            H5Pset_page_buffer_size(self.id, buf_size, min_meta_per, min_raw_per)
-
-        @with_phil
-        def get_page_buffer_size(self):
-            """ () -> (LONG buf_size, UINT min_meta_per, UINT min_raw_per)
-
-            Retrieves the maximum size for the page buffer and the minimum
-            percentage for metadata and raw data pages evicition criteria.
-            """
-            cdef size_t buf_size
-            cdef unsigned int min_meta_per, min_raw_per
-            H5Pget_page_buffer_size(self.id, &buf_size, &min_meta_per, &min_raw_per)
-            return (buf_size, min_meta_per, min_raw_per)
+        Retrieves the maximum size for the page buffer and the minimum
+        percentage for metadata and raw data pages evicition criteria.
+        """
+        cdef size_t buf_size
+        cdef unsigned int min_meta_per, min_raw_per
+        H5Pget_page_buffer_size(self.id, &buf_size, &min_meta_per, &min_raw_per)
+        return (buf_size, min_meta_per, min_raw_per)
 
     IF HDF5_VERSION >= (1, 12, 1) or (HDF5_VERSION[:2] == (1, 10) and HDF5_VERSION[2] >= 7):
 
@@ -1527,6 +1635,7 @@ cdef class PropLAID(PropInstanceID):
 
         size = H5Pget_elink_prefix(self.id, NULL, 0)
         buf = <char*>emalloc(size+1)
+        buf[0] = 0
         try:
             H5Pget_elink_prefix(self.id, buf, size+1)
             pstr = buf
@@ -1556,6 +1665,27 @@ cdef class PropLAID(PropInstanceID):
         if H5Iget_ref(fid) > 1:
             H5Idec_ref(fid)
         return propwrap(fid)
+
+
+    @with_phil
+    def set_elink_acc_flags(self, unsigned int flags):
+        """ (UNIT flags)
+
+        Sets the external link traversal file access flag in a link access property list.
+        """
+        H5Pset_elink_acc_flags(self.id, flags)
+
+
+    @with_phil
+    def get_elink_acc_flags(self):
+        """() => UINT
+
+        Retrieves the external link traversal file access flag from the specified link access property list.
+        """
+        cdef unsigned int flags
+        H5Pget_elink_acc_flags(self.id, &flags)
+        return flags
+
 
 # Datatype creation
 cdef class PropTCID(PropOCID):
@@ -1673,9 +1803,11 @@ cdef class PropDAID(PropInstanceID):
     """ Dataset access property list """
 
     def __cinit__(self, *args):
+        self._efile_prefix_buf = NULL
         self._virtual_prefix_buf = NULL
 
     def __dealloc__(self):
+        efree(self._efile_prefix_buf)
         efree(self._virtual_prefix_buf)
 
     @with_phil
@@ -1705,110 +1837,147 @@ cdef class PropDAID(PropInstanceID):
         H5Pget_chunk_cache(self.id, &rdcc_nslots, &rdcc_nbytes, &rdcc_w0 )
         return (rdcc_nslots,rdcc_nbytes,rdcc_w0)
 
+    @with_phil
+    def get_efile_prefix(self):
+        """() => STR
+
+        Get the filesystem path prefix configured for accessing external
+        datasets.
+        """
+        cdef char* cprefix = NULL
+        cdef ssize_t size
+
+        size = H5Pget_efile_prefix(self.id, NULL, 0)
+        cprefix = <char*>emalloc(size+1)
+        cprefix[0] = 0
+        try:
+            # TODO check return size
+            H5Pget_efile_prefix(self.id, cprefix, <size_t>size+1)
+            prefix = bytes(cprefix)
+        finally:
+            efree(cprefix)
+
+        return prefix
+
+    @with_phil
+    def set_efile_prefix(self, char* prefix):
+        """(STR prefix)
+
+        Set a filesystem path prefix for looking up external datasets.
+        This is prepended to all filenames specified in the external dataset.
+        """
+        cdef size_t size
+
+        # HDF5 requires that we hang on to this buffer
+        efree(self._efile_prefix_buf)
+        size = strlen(prefix)
+        self._efile_prefix_buf = <char*>emalloc(size+1)
+        strcpy(self._efile_prefix_buf, prefix)
+
+        H5Pset_efile_prefix(self.id, self._efile_prefix_buf)
+
     # === Virtual dataset functions ===========================================
-    IF HDF5_VERSION >= VDS_MIN_HDF5_VERSION:
+    @with_phil
+    def set_virtual_view(self, unsigned int view):
+        """(UINT view)
 
-        @with_phil
-        def set_virtual_view(self, unsigned int view):
-            """(UINT view)
+        Set the view of the virtual dataset (VDS) to include or exclude
+        missing mapped elements.
 
-            Set the view of the virtual dataset (VDS) to include or exclude
-            missing mapped elements.
+        If view is set to h5d.VDS_FIRST_MISSING, the view includes all data
+        before the first missing mapped data. This setting provides a view
+        containing only the continuous data starting with the dataset’s
+        first data element. Any break in continuity terminates the view.
 
-            If view is set to h5d.VDS_FIRST_MISSING, the view includes all data
-            before the first missing mapped data. This setting provides a view
-            containing only the continuous data starting with the dataset’s
-            first data element. Any break in continuity terminates the view.
+        If view is set to h5d.VDS_LAST_AVAILABLE, the view includes all
+        available mapped data.
 
-            If view is set to h5d.VDS_LAST_AVAILABLE, the view includes all
-            available mapped data.
+        Missing mapped data is filled with the fill value set in the
+        virtual dataset's creation property list.
+        """
+        H5Pset_virtual_view(self.id, <H5D_vds_view_t>view)
 
-            Missing mapped data is filled with the fill value set in the
-            virtual dataset's creation property list.
-            """
-            H5Pset_virtual_view(self.id, <H5D_vds_view_t>view)
+    @with_phil
+    def get_virtual_view(self):
+        """() => UINT view
 
-        @with_phil
-        def get_virtual_view(self):
-            """() => UINT view
+        Retrieve the view of the virtual dataset.
 
-            Retrieve the view of the virtual dataset.
+        Valid values are:
 
-            Valid values are:
+        - h5d.VDS_FIRST_MISSING
+        - h5d.VDS_LAST_AVAILABLE
+        """
+        cdef H5D_vds_view_t view
+        H5Pget_virtual_view(self.id, &view)
+        return <unsigned int>view
 
-            - h5d.VDS_FIRST_MISSING
-            - h5d.VDS_LAST_AVAILABLE
-            """
-            cdef H5D_vds_view_t view
-            H5Pget_virtual_view(self.id, &view)
-            return <unsigned int>view
+    @with_phil
+    def set_virtual_printf_gap(self, hsize_t gap_size=0):
+        """(LONG gap_size=0)
 
-        @with_phil
-        def set_virtual_printf_gap(self, hsize_t gap_size=0):
-            """(LONG gap_size=0)
+        Set the maximum number of missing source files and/or datasets
+        with the printf-style names when getting the extent of an unlimited
+        virtual dataset.
 
-            Set the maximum number of missing source files and/or datasets
-            with the printf-style names when getting the extent of an unlimited
-            virtual dataset.
+        Instruct the library to stop looking for the mapped data stored in
+        the files and/or datasets with the printf-style names after not
+        finding gap_size files and/or datasets. The found source files and
+        datasets will determine the extent of the unlimited virtual dataset
+        with the printf-style mappings. Default value: 0.
+        """
+        H5Pset_virtual_printf_gap(self.id, gap_size)
 
-            Instruct the library to stop looking for the mapped data stored in
-            the files and/or datasets with the printf-style names after not
-            finding gap_size files and/or datasets. The found source files and
-            datasets will determine the extent of the unlimited virtual dataset
-            with the printf-style mappings. Default value: 0.
-            """
-            H5Pset_virtual_printf_gap(self.id, gap_size)
+    @with_phil
+    def get_virtual_printf_gap(self):
+        """() => LONG gap_size
 
-        @with_phil
-        def get_virtual_printf_gap(self):
-            """() => LONG gap_size
+        Return the maximum number of missing source files and/or datasets
+        with the printf-style names when getting the extent for an
+        unlimited virtual dataset.
+        """
+        cdef hsize_t gap_size
+        H5Pget_virtual_printf_gap(self.id, &gap_size)
+        return gap_size
 
-            Return the maximum number of missing source files and/or datasets
-            with the printf-style names when getting the extent for an
-            unlimited virtual dataset.
-            """
-            cdef hsize_t gap_size
-            H5Pget_virtual_printf_gap(self.id, &gap_size)
-            return gap_size
+    @with_phil
+    def get_virtual_prefix(self):
+        """() => STR
 
-    if HDF5_VERSION >= (1, 10, 2):
-        @with_phil
-        def get_virtual_prefix(self):
-            """() => STR
+        Get the filesystem path prefix configured for accessing virtual
+        datasets.
+        """
+        cdef char* cprefix = NULL
+        cdef ssize_t size
 
-            Get the filesystem path prefix configured for accessing virtual
-            datasets.
-            """
-            cdef char* cprefix = NULL
-            cdef ssize_t size
+        size = H5Pget_virtual_prefix(self.id, NULL, 0)
+        cprefix = <char*>emalloc(size+1)
+        cprefix[0] = 0
+        try:
+            # TODO check return size
+            H5Pget_virtual_prefix(self.id, cprefix, <size_t>size+1)
+            prefix = bytes(cprefix)
+        finally:
+            efree(cprefix)
 
-            size = H5Pget_virtual_prefix(self.id, NULL, 0)
-            cprefix = <char*>emalloc(size+1)
-            try:
-                # TODO check return size
-                H5Pget_virtual_prefix(self.id, cprefix, <size_t>size+1)
-                prefix = bytes(cprefix)
-            finally:
-                efree(cprefix)
+        return prefix
 
-            return prefix
+    @with_phil
+    def set_virtual_prefix(self, char* prefix):
+        """(STR prefix)
 
-        @with_phil
-        def set_virtual_prefix(self, char* prefix):
-            """(STR prefix)
+        Set a filesystem path prefix for looking up virtual datasets.
+        This is prepended to all filenames specified in the virtual dataset.
+        """
+        cdef size_t size
 
-            Set a filesystem path prefix for looking up virtual datasets.
-            This is prepended to all filenames specified in the virtual dataset.
-            """
-            cdef size_t size
+        # HDF5 requires that we hang on to this buffer
+        efree(self._virtual_prefix_buf)
+        size = strlen(prefix)
+        self._virtual_prefix_buf = <char*>emalloc(size+1)
+        strcpy(self._virtual_prefix_buf, prefix)
 
-            # HDF5 requires that we hang on to this buffer
-            efree(self._virtual_prefix_buf)
-            size = strlen(prefix)
-            self._virtual_prefix_buf = <char*>emalloc(size+1)
-            strcpy(self._virtual_prefix_buf, prefix)
-
-            H5Pset_virtual_prefix(self.id, self._virtual_prefix_buf)
+        H5Pset_virtual_prefix(self.id, self._virtual_prefix_buf)
 
 cdef class PropDXID(PropInstanceID):
 

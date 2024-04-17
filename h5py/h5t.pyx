@@ -387,7 +387,7 @@ cdef class TypeID(ObjectID):
     """
         Base class for type identifiers (implements common operations)
 
-        * Hashable: If committed; in HDF5 1.8.X, also if locked
+        * Hashable: If committed or locked
         * Equality: Logical H5T comparison
     """
 
@@ -654,10 +654,7 @@ cdef class TypeOpaqueID(TypeID):
             tag = buf
             return tag
         finally:
-            IF HDF5_VERSION >= (1, 8, 13):
-                H5free_memory(buf)
-            ELSE:
-                free(buf)
+            H5free_memory(buf)
 
     cdef object py_dtype(self):
         cdef bytes tag = self.get_tag()
@@ -1118,10 +1115,7 @@ cdef class TypeCompositeID(TypeID):
             assert name != NULL
             pyname = <bytes>name
         finally:
-            IF HDF5_VERSION >= (1, 8, 13):
-                H5free_memory(name)
-            ELSE:
-                free(name)
+            H5free_memory(name)
 
         return pyname
 
@@ -1223,7 +1217,8 @@ cdef class TypeCompoundID(TypeCompositeID):
         if len(field_names) == 2                                and \
             tuple(field_names) == (cfg._r_name, cfg._i_name)    and \
             field_types[0] == field_types[1]                    and \
-            field_types[0].kind == 'f':
+            field_types[0].kind == 'f'                          and \
+            field_types[0].itemsize in (4, 8, 16):
 
             bstring = field_types[0].str
             blen = int(bstring[2:])

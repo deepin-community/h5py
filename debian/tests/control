@@ -4,7 +4,6 @@ Depends: python3-all,
          python3-h5py-serial,
          python3-pytest,
          python3-pytest-mpi,
-         python3-unittest2,
 Restrictions: allow-stderr
 
 Tests: python3-mpi
@@ -13,6 +12,30 @@ Depends: python3-all,
          python3-h5py-mpi,
          python3-pytest,
          python3-pytest-mpi,
-         python3-unittest2,
          mpi-default-bin
+Restrictions: allow-stderr
+
+Tests: python3-serial-network
+Depends: python3-all,
+         python3-h5py,
+         python3-h5py-serial,
+         python3-pytest,
+         python3-pytest-mpi,
+Restrictions: allow-stderr, needs-internet
+
+Tests: python3-mpi-network
+Depends: python3-all,
+         python3-h5py,
+         python3-h5py-mpi,
+         python3-pytest,
+         python3-pytest-mpi,
+         mpi-default-bin
+Restrictions: allow-stderr, needs-internet
+
+Test-Command: cd / && python3 -c 'import sys, h5py; sys.exit(not h5py.h5z.filter_avail(32000))'
+Depends: python3, @
+Restrictions: allow-stderr
+
+Test-Command: H5PY_ALWAYS_USE_MPI=1 cd / && python3 -c 'import sys, h5py; sys.exit(not h5py.h5z.filter_avail(32000))'
+Depends: python3, @
 Restrictions: allow-stderr

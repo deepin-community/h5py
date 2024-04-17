@@ -27,7 +27,7 @@ NUMPY_VERSION_COMPILED_AGAINST = NUMPY_BUILD_VERSION
 CYTHON_VERSION_COMPILED_WITH = CYTHON_BUILD_VERSION
 
 
-class ByteStringContext(object):
+class ByteStringContext:
 
     def __init__(self):
         self._readbytes = False
@@ -67,7 +67,6 @@ cdef class H5PYConfig:
         self._t_name = b'TRUE'
         self._bytestrings = ByteStringContext()
         self._track_order = False
-        self._default_file_mode = 'r'
 
     property complex_names:
         """ Settable 2-tuple controlling how complex numbers are saved.
@@ -145,15 +144,33 @@ cdef class H5PYConfig:
             ELSE:
                 return False
 
+    property direct_vfd:
+        """ Boolean indicating if DIRECT VFD is available """
+        def __get__(self):
+            IF DIRECT_VFD:
+                return True
+            ELSE:
+                return False
+
     property swmr_min_hdf5_version:
         """ Tuple indicating the minimum HDF5 version required for SWMR features"""
         def __get__(self):
-            return SWMR_MIN_HDF5_VERSION
+            warn(
+                "h5py.get_config().swmr_min_hdf5_version is deprecated. "
+                "This version of h5py does not support older HDF5 without SWMR.",
+                category=H5pyDeprecationWarning,
+            )
+            return (1, 9, 178)
 
     property vds_min_hdf5_version:
         """Tuple indicating the minimum HDF5 version required for virtual dataset (VDS) features"""
         def __get__(self):
-            return VDS_MIN_HDF5_VERSION
+            warn(
+                "h5py.get_config().vds_min_hdf5_version is deprecated. "
+                "This version of h5py does not support older HDF5 without VDS.",
+                category=H5pyDeprecationWarning,
+            )
+            return (1, 9, 233)
 
     property track_order:
         """ Default value for track_order argument of
@@ -166,7 +183,12 @@ cdef class H5PYConfig:
     property default_file_mode:
         """Default mode for h5py.File()"""
         def __get__(self):
-            return self._default_file_mode
+            warn(
+                "h5py.get_config().default_file_mode is deprecated. "
+                "The default mode is now always 'r' (read-only).",
+                category=H5pyDeprecationWarning,
+            )
+            return 'r'
 
         def __set__(self, val):
             if val == 'r':

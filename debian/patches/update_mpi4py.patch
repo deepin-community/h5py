@@ -1,13 +1,13 @@
 Index: h5py/setup.py
 ===================================================================
---- h5py.orig/setup.py	2021-09-26 22:13:06.466609585 +0200
-+++ h5py/setup.py	2021-09-26 22:13:51.883291200 +0200
-@@ -56,7 +56,7 @@
- if setup_configure.mpi_enabled():
-     RUN_REQUIRES.append('mpi4py >=3.0.2')
-     SETUP_REQUIRES.append("mpi4py ==3.0.2; python_version<'3.8'")
--    SETUP_REQUIRES.append("mpi4py ==3.0.3; python_version>='3.8'")
-+    SETUP_REQUIRES.append("mpi4py >=3.0.3; python_version>='3.8'")
+--- h5py.orig/setup.py	2023-07-09 23:48:18.159688917 +0200
++++ h5py/setup.py	2023-07-09 23:48:35.843855811 +0200
+@@ -47,7 +47,7 @@
+     # incompatible with newer setuptools.
+     RUN_REQUIRES.append('mpi4py >=3.1.1')
+     SETUP_REQUIRES.append("mpi4py ==3.1.1; python_version<'3.11'")
+-    SETUP_REQUIRES.append("mpi4py ==3.1.4; python_version>='3.11'")
++    SETUP_REQUIRES.append("mpi4py >=3.1.4; python_version>='3.11'")
  
  # Set the environment variable H5PY_SETUP_REQUIRES=0 if we need to skip
  # setup_requires for any reason.

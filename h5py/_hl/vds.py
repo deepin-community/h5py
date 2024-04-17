@@ -19,8 +19,7 @@ import numpy as np
 from .compat import filename_encode
 from .datatype import Datatype
 from .selections import SimpleSelection, select
-from .. import h5d, h5p, h5s, h5t, h5
-from .. import version
+from .. import h5d, h5p, h5s, h5t
 
 
 class VDSmap(namedtuple('VDSmap', ('vspace', 'file_name',
@@ -29,11 +28,7 @@ class VDSmap(namedtuple('VDSmap', ('vspace', 'file_name',
     '''
 
 
-vds_support = False
-hdf5_version = version.hdf5_version_tuple[0:3]
-
-if hdf5_version >= h5.get_config().vds_min_hdf5_version:
-    vds_support = True
+vds_support = True
 
 
 def _convert_space_for_key(space, key):
@@ -69,7 +64,7 @@ def _convert_space_for_key(space, key):
         space.select_hyperslab(start, count, stride, block)
 
 
-class VirtualSource(object):
+class VirtualSource:
     """Source definition for virtual data sets.
 
     Instantiate this class to represent an entire source dataset, and then
@@ -132,18 +127,22 @@ class VirtualSource(object):
             self.maxshape = tuple([h5s.UNLIMITED if ix is None else ix
                                    for ix in maxshape])
         self.sel = SimpleSelection(shape)
+        self._all_selected = True
 
     @property
     def shape(self):
         return self.sel.array_shape
 
     def __getitem__(self, key):
+        if not self._all_selected:
+            raise RuntimeError("VirtualSource objects can only be sliced once.")
         tmp = copy(self)
         tmp.sel = select(self.shape, key, dataset=None)
         _convert_space_for_key(tmp.sel.id, key)
+        tmp._all_selected = False
         return tmp
 
-class VirtualLayout(object):
+class VirtualLayout:
     """Object for building a virtual dataset.
 
     Instantiate this class to define a virtual dataset, assign to slices of it
