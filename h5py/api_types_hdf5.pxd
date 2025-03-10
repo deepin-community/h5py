@@ -115,10 +115,10 @@ cdef extern from "hdf5.h":
     H5F_SCOPE_DOWN      = 2     # for internal use only
 
   cdef enum H5F_close_degree_t:
-    H5F_CLOSE_WEAK  = 0,
-    H5F_CLOSE_SEMI  = 1,
-    H5F_CLOSE_STRONG = 2,
-    H5F_CLOSE_DEFAULT = 3
+    H5F_CLOSE_DEFAULT = 0,
+    H5F_CLOSE_WEAK    = 1,
+    H5F_CLOSE_SEMI    = 2,
+    H5F_CLOSE_STRONG  = 3
 
   cdef enum H5F_fspace_strategy_t:
     H5F_FSPACE_STRATEGY_FSM_AGGR = 0,  # FSM, Aggregators, VFD
@@ -257,27 +257,27 @@ cdef extern from "hdf5.h":
       herr_t  (*sb_encode)(H5FD_t *file, char *name, unsigned char *p)
       herr_t  (*sb_decode)(H5FD_t *f, const char *name, const unsigned char *p)
       size_t  fapl_size
-      void *  (*fapl_get)(H5FD_t *file)
-      void *  (*fapl_copy)(const void *fapl)
-      herr_t  (*fapl_free)(void *fapl)
+      void *  (*fapl_get)(H5FD_t *file) except *
+      void *  (*fapl_copy)(const void *fapl) except *
+      herr_t  (*fapl_free)(void *fapl) except -1
       size_t  dxpl_size
       void *  (*dxpl_copy)(const void *dxpl)
       herr_t  (*dxpl_free)(void *dxpl)
-      H5FD_t *(*open)(const char *name, unsigned flags, hid_t fapl, haddr_t maxaddr)
-      herr_t  (*close)(H5FD_t *file)
+      H5FD_t *(*open)(const char *name, unsigned flags, hid_t fapl, haddr_t maxaddr) except *
+      herr_t  (*close)(H5FD_t *file) except -1
       int     (*cmp)(const H5FD_t *f1, const H5FD_t *f2)
       herr_t  (*query)(const H5FD_t *f1, unsigned long *flags)
       herr_t  (*get_type_map)(const H5FD_t *file, H5FD_mem_t *type_map)
       haddr_t (*alloc)(H5FD_t *file, H5FD_mem_t type, hid_t dxpl_id, hsize_t size)
       herr_t  (*free)(H5FD_t *file, H5FD_mem_t type, hid_t dxpl_id, haddr_t addr, hsize_t size)
-      haddr_t (*get_eoa)(const H5FD_t *file, H5FD_mem_t type)
-      herr_t  (*set_eoa)(H5FD_t *file, H5FD_mem_t type, haddr_t addr)
-      haddr_t (*get_eof)(const H5FD_t *file, H5FD_mem_t type)
+      haddr_t (*get_eoa)(const H5FD_t *file, H5FD_mem_t type) noexcept
+      herr_t  (*set_eoa)(H5FD_t *file, H5FD_mem_t type, haddr_t addr) noexcept
+      haddr_t (*get_eof)(const H5FD_t *file, H5FD_mem_t type) except -1
       herr_t  (*get_handle)(H5FD_t *file, hid_t fapl, void**file_handle)
-      herr_t  (*read)(H5FD_t *file, H5FD_mem_t type, hid_t dxpl, haddr_t addr, size_t size, void *buffer)
-      herr_t  (*write)(H5FD_t *file, H5FD_mem_t type, hid_t dxpl, haddr_t addr, size_t size, const void *buffer)
-      herr_t  (*flush)(H5FD_t *file, hid_t dxpl_id, hbool_t closing)
-      herr_t  (*truncate)(H5FD_t *file, hid_t dxpl_id, hbool_t closing)
+      herr_t  (*read)(H5FD_t *file, H5FD_mem_t type, hid_t dxpl, haddr_t addr, size_t size, void *buffer) except *
+      herr_t  (*write)(H5FD_t *file, H5FD_mem_t type, hid_t dxpl, haddr_t addr, size_t size, const void *buffer) except *
+      herr_t  (*flush)(H5FD_t *file, hid_t dxpl_id, hbool_t closing) except -1
+      herr_t  (*truncate)(H5FD_t *file, hid_t dxpl_id, hbool_t closing) except -1
       herr_t  (*lock)(H5FD_t *file, hbool_t rw)
       herr_t  (*unlock)(H5FD_t *file)
       H5FD_mem_t fl_map[<int>H5FD_MEM_NTYPES]
@@ -295,27 +295,27 @@ cdef extern from "hdf5.h":
       herr_t  (*sb_encode)(H5FD_t *file, char *name, unsigned char *p)
       herr_t  (*sb_decode)(H5FD_t *f, const char *name, const unsigned char *p)
       size_t  fapl_size
-      void *  (*fapl_get)(H5FD_t *file)
-      void *  (*fapl_copy)(const void *fapl)
-      herr_t  (*fapl_free)(void *fapl)
+      void *  (*fapl_get)(H5FD_t *file) except *
+      void *  (*fapl_copy)(const void *fapl) except *
+      herr_t  (*fapl_free)(void *fapl) except -1
       size_t  dxpl_size
       void *  (*dxpl_copy)(const void *dxpl)
       herr_t  (*dxpl_free)(void *dxpl)
-      H5FD_t *(*open)(const char *name, unsigned flags, hid_t fapl, haddr_t maxaddr)
-      herr_t  (*close)(H5FD_t *file)
+      H5FD_t *(*open)(const char *name, unsigned flags, hid_t fapl, haddr_t maxaddr) except *
+      herr_t  (*close)(H5FD_t *file) except -1
       int     (*cmp)(const H5FD_t *f1, const H5FD_t *f2)
       herr_t  (*query)(const H5FD_t *f1, unsigned long *flags)
       herr_t  (*get_type_map)(const H5FD_t *file, H5FD_mem_t *type_map)
       haddr_t (*alloc)(H5FD_t *file, H5FD_mem_t type, hid_t dxpl_id, hsize_t size)
       herr_t  (*free)(H5FD_t *file, H5FD_mem_t type, hid_t dxpl_id, haddr_t addr, hsize_t size)
-      haddr_t (*get_eoa)(const H5FD_t *file, H5FD_mem_t type)
-      herr_t  (*set_eoa)(H5FD_t *file, H5FD_mem_t type, haddr_t addr)
-      haddr_t (*get_eof)(const H5FD_t *file, H5FD_mem_t type)
+      haddr_t (*get_eoa)(const H5FD_t *file, H5FD_mem_t type) noexcept
+      herr_t  (*set_eoa)(H5FD_t *file, H5FD_mem_t type, haddr_t addr) noexcept
+      haddr_t (*get_eof)(const H5FD_t *file, H5FD_mem_t type) except -1
       herr_t  (*get_handle)(H5FD_t *file, hid_t fapl, void**file_handle)
-      herr_t  (*read)(H5FD_t *file, H5FD_mem_t type, hid_t dxpl, haddr_t addr, size_t size, void *buffer)
-      herr_t  (*write)(H5FD_t *file, H5FD_mem_t type, hid_t dxpl, haddr_t addr, size_t size, const void *buffer)
-      herr_t  (*flush)(H5FD_t *file, hid_t dxpl_id, hbool_t closing)
-      herr_t  (*truncate)(H5FD_t *file, hid_t dxpl_id, hbool_t closing)
+      herr_t  (*read)(H5FD_t *file, H5FD_mem_t type, hid_t dxpl, haddr_t addr, size_t size, void *buffer) except *
+      herr_t  (*write)(H5FD_t *file, H5FD_mem_t type, hid_t dxpl, haddr_t addr, size_t size, const void *buffer) except *
+      herr_t  (*flush)(H5FD_t *file, hid_t dxpl_id, hbool_t closing) except -1
+      herr_t  (*truncate)(H5FD_t *file, hid_t dxpl_id, hbool_t closing) except -1
       herr_t  (*lock)(H5FD_t *file, hbool_t rw)
       herr_t  (*unlock)(H5FD_t *file)
       H5FD_mem_t fl_map[<int>H5FD_MEM_NTYPES]
@@ -335,18 +335,17 @@ cdef extern from "hdf5.h":
     hsize_t alignment           # Allocation alignment
     hbool_t paged_aggr          # Paged aggregation for file space is enabled or not
 
-  IF HDF5_VERSION >= (1, 10, 6):
-    ctypedef struct H5FD_ros3_fapl_t:
-      int32_t version
-      hbool_t authenticate
-      char    aws_region[33]
-      char    secret_id[129]
-      char    secret_key[129]
+  ctypedef struct H5FD_ros3_fapl_t:
+    int32_t version
+    hbool_t authenticate
+    char    aws_region[33]
+    char    secret_id[129]
+    char    secret_key[129]
 
-    unsigned int H5FD_CURR_ROS3_FAPL_T_VERSION # version of struct
+  unsigned int H5FD_CURR_ROS3_FAPL_T_VERSION # version of struct
 
-    IF HDF5_VERSION >= (1, 14, 2):
-      size_t H5FD_ROS3_MAX_SECRET_TOK_LEN
+  IF HDF5_VERSION >= (1, 14, 2):
+    size_t H5FD_ROS3_MAX_SECRET_TOK_LEN
 # === H5G - Groups API ========================================================
 
   ctypedef enum H5G_link_t:
@@ -384,6 +383,8 @@ cdef extern from "hdf5.h":
       int64_t     max_corder
 
 # === H5I - Identifier and reflection interface ===============================
+
+  int H5I_INVALID_HID
 
   IF HDF5_VERSION < VOL_MIN_HDF5_VERSION:
     ctypedef enum H5I_type_t:
@@ -673,6 +674,8 @@ cdef extern from "hdf5.h":
   cdef hid_t H5T_NATIVE_FLOAT
   cdef hid_t H5T_NATIVE_DOUBLE
   cdef hid_t H5T_NATIVE_LDOUBLE
+  IF HDF5_VERSION > (1, 14, 3):
+    cdef hid_t H5T_NATIVE_FLOAT16
 
   # "Standard" types
   cdef hid_t H5T_STD_I8LE
@@ -703,6 +706,10 @@ cdef extern from "hdf5.h":
   cdef hid_t H5T_STD_B64BE
   cdef hid_t H5T_IEEE_F32BE
   cdef hid_t H5T_IEEE_F64BE
+  IF HDF5_VERSION > (1, 14, 3):
+    cdef hid_t H5T_IEEE_F16BE
+    cdef hid_t H5T_IEEE_F16LE
+
 
   cdef hid_t H5T_NATIVE_INT8
   cdef hid_t H5T_NATIVE_UINT8

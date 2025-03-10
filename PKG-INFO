@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: h5py
-Version: 3.10.0
+Version: 3.13.0
 Summary: Read and write HDF5 files from Python
 Author-email: Andrew Collette <andrew.collette@gmail.com>
 Maintainer-email: Thomas Kluyver <thomas@kluyver.me.uk>, Thomas A Caswell <tcaswell@bnl.gov>
@@ -9,7 +9,7 @@ Project-URL: Homepage, https://www.h5py.org/
 Project-URL: Source, https://github.com/h5py/h5py
 Project-URL: Documentation, https://docs.h5py.org/en/stable/
 Project-URL: Release notes, https://docs.h5py.org/en/stable/whatsnew/index.html
-Project-URL: Discussion forum, https://forum.hdfgroup.org/c/hdf-tools/h5py
+Project-URL: Discussion forum, https://forum.hdfgroup.org/c/hdf5/h5py
 Classifier: Development Status :: 5 - Production/Stable
 Classifier: Intended Audience :: Developers
 Classifier: Intended Audience :: Information Technology
@@ -26,9 +26,10 @@ Classifier: Programming Language :: Python :: Implementation :: CPython
 Classifier: Topic :: Scientific/Engineering
 Classifier: Topic :: Database
 Classifier: Topic :: Software Development :: Libraries :: Python Modules
-Requires-Python: >=3.8
+Requires-Python: >=3.9
 Description-Content-Type: text/x-rst
 License-File: LICENSE
+Requires-Dist: numpy>=1.19.3
 
 The h5py package provides both a high- and low-level interface to the HDF5
 library from Python. The low-level interface is intended to be a complete

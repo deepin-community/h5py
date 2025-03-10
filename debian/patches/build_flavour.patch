@@ -1,10 +1,12 @@
---- a/setup_build.py
-+++ b/setup_build.py
+Index: h5py/setup_build.py
+===================================================================
+--- h5py.orig/setup_build.py	2025-02-22 14:47:56.523752641 +0100
++++ h5py/setup_build.py	2025-02-22 14:49:24.480563042 +0100
 @@ -18,6 +18,8 @@
  import api_gen
  from setup_configure import BuildConfig
  
-+# set flavour  to 'pre_h5py_suf' to enable alternative builds e.g. _debian_h5py_mpi
++# set flavour to 'pre_h5py_suf' to enable alternative builds e.g. _debian_h5py_mpi
 +flavour=''
  
  def localpath(*args):
@@ -25,55 +27,54 @@
  
          return [make_extension(m) for m in MODULES]
  
-@@ -149,14 +155,14 @@
+@@ -148,11 +154,11 @@
                  f"{config.hdf5_version} from environment variable or library)"
              )
  
--        defs_file = localpath('h5py', 'defs.pyx')
--        func_file = localpath('h5py', 'api_functions.txt')
 -        config_file = localpath('h5py', 'config.pxi')
-+        defs_file = localpath('h5py', flavour, 'defs.pyx')
-+        func_file = localpath('h5py', flavour, 'api_functions.txt')
 +        config_file = localpath('h5py', flavour, 'config.pxi')
  
-         # Rebuild low-level defs if missing or stale
-         if not op.isfile(defs_file) or os.stat(func_file).st_mtime > os.stat(defs_file).st_mtime:
-             print("Executing api_gen rebuild of defs")
--            api_gen.run()
-+            api_gen.run(flavour=flavour)
+         # Refresh low-level defs if missing or stale
+         print("Executing api_gen rebuild of defs")
+-        api_gen.run()
++        api_gen.run(flavour=flavour)
  
          # Rewrite config.pxi file if needed
          s = f"""\
---- a/api_gen.py
-+++ b/api_gen.py
-@@ -170,15 +170,15 @@
- 
- class LineProcessor:
+Index: h5py/api_gen.py
+===================================================================
+--- h5py.orig/api_gen.py	2025-02-22 14:47:56.523752641 +0100
++++ h5py/api_gen.py	2025-02-22 14:50:58.621428833 +0100
+@@ -189,15 +189,15 @@
+     def __init__(self, config) -> None:
+         self.config = config
  
 -    def run(self):
 +    def run(self, flavour=''):
  
          # Function definitions file
--        self.functions = open(op.join('h5py', 'api_functions.txt'), 'r')
-+        self.functions = open(op.join('h5py', flavour, 'api_functions.txt'), 'r')
+-        self.functions = Path('h5py', 'api_functions.txt').open('r')
++        self.functions = Path('h5py', flavour, 'api_functions.txt').open('r')
  
          # Create output files
--        self.raw_defs = open(op.join('h5py', '_hdf5.pxd'), 'w')
--        self.cython_defs = open(op.join('h5py', 'defs.pxd'), 'w')
--        self.cython_imp = open(op.join('h5py', 'defs.pyx'), 'w')
-+        self.raw_defs = open(op.join('h5py', flavour, '_hdf5.pxd'), 'w')
-+        self.cython_defs = open(op.join('h5py', flavour, 'defs.pxd'), 'w')
-+        self.cython_imp = open(op.join('h5py', flavour, 'defs.pyx'), 'w')
- 
-         self.raw_defs.write(raw_preamble)
-         self.cython_defs.write(def_preamble)
-@@ -303,9 +303,9 @@
+-        path_raw_defs = Path('h5py', '_hdf5.pxd.new')
+-        path_cython_defs = Path('h5py', 'defs.pxd.new')
+-        path_cython_imp = Path('h5py', 'defs.pyx.new')
++        path_raw_defs = Path('h5py', flavour, '_hdf5.pxd.new')
++        path_cython_defs = Path('h5py', flavour, 'defs.pxd.new')
++        path_cython_imp = Path('h5py', flavour, 'defs.pyx.new')
+         self.raw_defs = path_raw_defs.open('w')
+         self.cython_defs = path_cython_defs.open('w')
+         self.cython_imp = path_cython_imp.open('w')
+@@ -319,11 +319,11 @@
          self.cython_imp.write(imp)
  
  
 -def run():
 +def run(flavour=''):
-     lp = LineProcessor()
+     # Get configuration from environment variables
+     config = BuildConfig.from_env()
+     lp = LineProcessor(config)
 -    lp.run()
 +    lp.run(flavour=flavour)
  

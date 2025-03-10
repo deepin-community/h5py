@@ -23,8 +23,8 @@ PYBUILD_DIR_MPI=$(shell PYBUILD_NAME=$(PYBUILD_NAME_MPI) pybuild -p `py3versions
 
 PY3VER=$(shell py3versions -dv)
 
-export OMPI_MCA_plm_rsh_agent=/bin/false
-export OMPI_MCA_rmaps_base_oversubscribe=1
+export PRTE_MCA_plm_ssh_agent=/bin/false
+export PRTE_MCA_rmaps_default_mapping_policy=:oversubscribe
 
 # ros3 tests require internet, which is not available from debian buildds
 SKIP_TEST_LIST = ros3
@@ -135,8 +135,9 @@ ifneq (nocheck,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
 		echo "Running MPI tests on $$DIR"; \
 		rm -rf $$DIR/h5py/_debian_h5py_mpi/tests/data_files ; \
 		cp -r $(CURDIR)/h5py/tests/data_files $$DIR/h5py/_debian_h5py_mpi/tests/; \
-		cd $$DIR/..; PYTHONPATH=$$DIR mpirun -n 2 python$$(echo $$DIR | sed -e 's@.*cpython._\([[:digit:].]*\(_dbg\)*\).*_h5py.*@\1@g; s/_/-/') \
-		-c "from sys import exit; import h5py; exit(h5py.run_tests('-v --with-mpi -p no:xvfb -k \"$(SKIP_TESTS)\"'))"; \
+		cd $$DIR/..; pyver=$$(echo $$DIR | sed -e 's@.*cpython._\([[:digit:].]*\(_dbg\)*\).*_h5py.*@\1@g; s/_/-/'); \
+		PYTHONPATH=$$DIR python$$pyver -mpytest -v --with-mpi -p no:xvfb -k "$(SKIP_TESTS) and not TestMPI" $$DIR/h5py/_debian_h5py_mpi/tests; \
+		PYTHONPATH=$$DIR mpirun -n 2 python$$pyver -mpytest -v --with-mpi -p no:xvfb -k TestMPI $$DIR/h5py/_debian_h5py_mpi/tests/test_file.py; \
 		rm -rf $$DIR/h5py/_debian_h5py_mpi/tests/data_files ; \
 	cd ../..; done;
 else
