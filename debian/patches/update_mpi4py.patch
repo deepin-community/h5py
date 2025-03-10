@@ -1,13 +1,19 @@
 Index: h5py/setup.py
 ===================================================================
---- h5py.orig/setup.py	2023-07-09 23:48:18.159688917 +0200
-+++ h5py/setup.py	2023-07-09 23:48:35.843855811 +0200
-@@ -47,7 +47,7 @@
+--- h5py.orig/setup.py	2025-02-22 14:51:15.709585836 +0100
++++ h5py/setup.py	2025-02-22 14:52:36.734176078 +0100
+@@ -46,10 +46,10 @@
+     # mpi4py 3.1.1 fixed a typo in python_requires, which made older versions
      # incompatible with newer setuptools.
      RUN_REQUIRES.append('mpi4py >=3.1.1')
-     SETUP_REQUIRES.append("mpi4py ==3.1.1; python_version<'3.11'")
--    SETUP_REQUIRES.append("mpi4py ==3.1.4; python_version>='3.11'")
-+    SETUP_REQUIRES.append("mpi4py >=3.1.4; python_version>='3.11'")
+-    SETUP_REQUIRES.append("mpi4py ==3.1.1; python_version<'3.11'")
+-    SETUP_REQUIRES.append("mpi4py ==3.1.4; python_version=='3.11.*'")
+-    SETUP_REQUIRES.append("mpi4py ==3.1.6; python_version=='3.12.*'")
+-    SETUP_REQUIRES.append("mpi4py ==4.0.1; python_version>='3.13'")
++    SETUP_REQUIRES.append("mpi4py >=3.1.1; python_version<'3.11'")
++    SETUP_REQUIRES.append("mpi4py >=3.1.4; python_version=='3.11.*'")
++    SETUP_REQUIRES.append("mpi4py >=3.1.6; python_version=='3.12.*'")
++    SETUP_REQUIRES.append("mpi4py >=4.0.1; python_version>='3.13'")
  
  # Set the environment variable H5PY_SETUP_REQUIRES=0 if we need to skip
  # setup_requires for any reason.

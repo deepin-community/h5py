@@ -133,12 +133,12 @@ cdef class SpaceID(ObjectID):
         * Equality: Unimplemented
     """
 
-    property shape:
+    @property
+    def shape(self):
         """ Numpy-style shape tuple representing dimensions.  () == scalar.
         """
-        def __get__(self):
-            with phil:
-                return self.get_simple_extent_dims()
+        with phil:
+            return self.get_simple_extent_dims()
 
 
     @with_phil
@@ -394,6 +394,15 @@ cdef class SpaceID(ObjectID):
             efree(start)
             efree(end)
 
+    IF HDF5_VERSION >= (1, 10, 7):
+        @with_phil
+        def select_shape_same(self, SpaceID space2):
+            """(SpaceID space2) => BOOL
+
+            Check if two selections are the same shape. HDF5 may read data
+            faster if the source & destination selections are the same shape.
+            """
+            return <bint>H5Sselect_shape_same(self.id, space2.id)
 
     @with_phil
     def select_all(self):

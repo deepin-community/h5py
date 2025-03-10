@@ -1,3 +1,81 @@
+h5py (3.13.0-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Drew Parsons <dparsons@debian.org>  Sat, 22 Feb 2025 14:54:20 +0100
+
+h5py (3.12.1-1) unstable; urgency=medium
+
+  [Drew Parsons]
+  * New upstream release
+
+  [Michael Hudson-Doyle]
+  * d/patches/fix-unaligned-access.patch: update to replace an additional
+    unaligned access with a memcpy to fix behaviour on armhf userland / arm64
+    kernels without COMPAT_ALIGNMENT_FIXUPS as found in Ubuntu.
+    Closes: #1061063
+
+ -- Drew Parsons <dparsons@debian.org>  Thu, 05 Dec 2024 21:32:46 +0100
+
+h5py (3.11.0-8) unstable; urgency=medium
+
+  * Team upload.
+  * Enable oversubscription and set ssh agent using new environment variables
+    for OpenMPI 5.
+
+ -- Santiago Vila <sanvila@debian.org>  Thu, 07 Nov 2024 12:25:00 +0100
+
+h5py (3.11.0-7) unstable; urgency=medium
+
+  * also run build-time MPI tests directly via pytest --with-mpi
+    instead of h5py.runtest()
+
+ -- Drew Parsons <dparsons@debian.org>  Mon, 14 Oct 2024 18:32:58 +0200
+
+h5py (3.11.0-6) unstable; urgency=medium
+
+  * debian/tests: run all MPI tests directly via pytest --with-mpi
+    instead of h5py.runtest(), which crashes with MPICH (32-bit).
+    Closes: #1080198
+
+ -- Drew Parsons <dparsons@debian.org>  Mon, 14 Oct 2024 16:35:39 +0200
+
+h5py (3.11.0-5) unstable; urgency=medium
+
+  * fix launch of MPI tests
+
+ -- Drew Parsons <dparsons@debian.org>  Sun, 14 Jul 2024 22:06:26 +0200
+
+h5py (3.11.0-4) unstable; urgency=medium
+
+  * point pytest directly at test_file.py for MPI tests
+
+ -- Drew Parsons <dparsons@debian.org>  Sun, 14 Jul 2024 16:31:06 +0200
+
+h5py (3.11.0-3) unstable; urgency=medium
+
+  * do not run internal MPI tests (TestMPI) via h5py.run_tests().
+    mpich is not comfortable with that (in 32-bit builds).
+    Instead, run them directly with pytest. Closes: #1076028.
+
+ -- Drew Parsons <dparsons@debian.org>  Sun, 14 Jul 2024 16:03:35 +0200
+
+h5py (3.11.0-2) unstable; urgency=medium
+
+  * Build-Depends: pkgconf not pkg-config
+
+ -- Drew Parsons <dparsons@debian.org>  Wed, 12 Jun 2024 11:22:09 +0200
+
+h5py (3.11.0-1) experimental; urgency=medium
+
+  * New upstream release.
+    - Build-Depends: cython3
+    - Build-Depends-Indep: python3-sphinx-rtd-theme (for docs)
+  * set Drew Parsons as Uploader
+  * Standards-Version: 4.7.0
+
+ -- Drew Parsons <dparsons@debian.org>  Sat, 01 Jun 2024 18:31:57 +0200
+
 h5py (3.10.0-1) unstable; urgency=medium
 
   * Team upload.

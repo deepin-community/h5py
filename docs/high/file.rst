@@ -126,6 +126,30 @@ of supported drivers and their options:
            with ros3. Alternatively, use the :ref:`file-like object
            <file_fileobj>` support with a package like s3fs.
 
+.. _file_in_memory:
+
+In-memory 'files'
+-----------------
+
+HDF5 can make a file in memory, without reading or writing a real file.
+To do this with h5py, use the :meth:`.File.in_memory` class method::
+
+    # Start a new HDF5 file in memory
+    f = h5py.File.in_memory()
+    f['a'] = [1, 2, 3]
+
+    # Get the file data as bytes, e.g. to send over the network
+    f.flush()
+    hdf_data = f.id.get_file_image()
+
+    # Turn the bytes back into an h5py File object
+    f2 = h5py.File.in_memory(hdf_data)
+
+This uses HDF5's "core" :ref:`file driver <file_driver>`, which is likely to
+cause fewer odd problems than asking HDF5 to call back into a Python ``BytesIO``
+object (:ref:`described below <file_fileobj>`).
+
+.. versionadded:: 3.13
 
 .. _file_fileobj:
 
@@ -382,7 +406,7 @@ chunk cache*. They apply to all datasets unless specifically changed for each on
   approximately 100 times that number of chunks. The default value is 521.
 
 Chunks and caching are described in greater detail in the `HDF5 documentation
-<https://portal.hdfgroup.org/display/HDF5/Chunking+in+HDF5>`_.
+<https://support.hdfgroup.org/documentation/hdf5-docs/advanced_topics/chunking_in_hdf5.html>`_.
 
 .. _file_alignment:
 
@@ -392,7 +416,7 @@ Data alignment
 When creating datasets within files, it may be advantageous to align the offset
 within the file itself. This can help optimize read and write times if the data
 become aligned with the underlying hardware, or may help with parallelism with
-MPI. Unfortunately, aligning small variables to large blocks can leave alot of
+MPI. Unfortunately, aligning small variables to large blocks can leave a lot of
 empty space in a file. To this effect, application developers are left with two
 options to tune the alignment of data within their file.  The two variables
 ``alignment_threshold`` and ``alignment_interval``  in the :class:`File`
@@ -401,7 +425,7 @@ takes effect and the alignment in bytes within the file. The alignment is
 measured from the end of the user block.
 
 For more information, see the official HDF5 documentation `H5P_SET_ALIGNMENT
-<https://portal.hdfgroup.org/display/HDF5/H5P_SET_ALIGNMENT>`_.
+<https://support.hdfgroup.org/documentation/hdf5/latest/group___f_a_p_l.html#gab99d5af749aeb3896fd9e3ceb273677a>`_.
 
 .. _file_meta_block_size:
 
@@ -415,8 +439,8 @@ number of regions. Setting a small value can reduce the overall file size,
 especially in combination with the ``libver`` option. This controls how the
 overall data and metadata are laid out within the file.
 
-For more information, see the offical HDF5 documentation `H5P_SET_META_BLOCK_SIZE
-<https://portal.hdfgroup.org/display/HDF5/H5P_SET_META_BLOCK_SIZE>`_.
+For more information, see the official HDF5 documentation `H5P_SET_META_BLOCK_SIZE
+<https://support.hdfgroup.org/documentation/hdf5/latest/group___f_a_p_l.html#ga8822e3dedc8e1414f20871a87d533cb1>`_.
 
 Reference
 ---------
@@ -497,7 +521,7 @@ Reference
             Only available with HDF5 >= 1.12.1 or 1.10.x >= 1.10.7.
     :param alignment_threshold: Together with ``alignment_interval``, this
             property ensures that any file object greater than or equal
-            in size to the alignement threshold (in bytes) will be
+            in size to the alignment threshold (in bytes) will be
             aligned on an address which is a multiple of alignment interval.
     :param alignment_interval: This property should be used in conjunction with
             ``alignment_threshold``. See the description above. For more
@@ -505,6 +529,15 @@ Reference
     :param meta_block_size: Determines the current minimum size, in bytes, of
             new metadata block allocations. See :ref:`file_meta_block_size`.
     :param kwds:    Driver-specific keywords; see :ref:`file_driver`.
+
+    .. classmethod:: in_memory(file_image=None, block_size=64*1024, **kwargs)
+
+        :param file_image: The initial file contents as bytes (or anything that
+            supports the Python buffer interface). HDF5 takes a copy of this data.
+        :param block_size: Chunk size for new memory alloactions (default 64 KiB).
+
+        Other keyword arguments are like :class:`File`, although name, mode,
+        driver and locking can't be passed.
 
     .. method:: __bool__()
 

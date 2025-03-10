@@ -986,10 +986,10 @@ cdef class PropFAID(PropInstanceID):
         Set the file-close degree, which determines library behavior when
         a file is closed when objects are still open.  Legal values:
 
+        * h5f.CLOSE_DEFAULT
         * h5f.CLOSE_WEAK
         * h5f.CLOSE_SEMI
         * h5f.CLOSE_STRONG
-        * h5f.CLOSE_DEFAULT
         """
         H5Pset_fclose_degree(self.id, <H5F_close_degree_t>close_degree)
 
@@ -1001,10 +1001,10 @@ cdef class PropFAID(PropInstanceID):
         Get the file-close degree, which determines library behavior when
         a file is closed when objects are still open.  Legal values:
 
+        * h5f.CLOSE_DEFAULT
         * h5f.CLOSE_WEAK
         * h5f.CLOSE_SEMI
         * h5f.CLOSE_STRONG
-        * h5f.CLOSE_DEFAULT
         """
         cdef H5F_close_degree_t deg
         H5Pget_fclose_degree(self.id, &deg)
@@ -1017,8 +1017,8 @@ cdef class PropFAID(PropInstanceID):
 
         Use the h5fd.CORE (memory-resident) file driver.
 
-        increment
-            Chunk size for new memory requests (default 1 meg)
+        block_size
+            Chunk size for new memory requests (default 64 KiB)
 
         backing_store
             If True (default), memory contents are associated with an
@@ -1177,7 +1177,7 @@ cdef class PropFAID(PropInstanceID):
                 size_t block_size   IN: File system block size
                 size_t cbuf_size    IN: Copy buffer size
 
-            Properites with value of 0 indicate that the HDF5 library should
+            Properties with value of 0 indicate that the HDF5 library should
             choose the value.
             """
             H5Pset_fapl_direct(self.id, alignment, block_size, cbuf_size)
@@ -1313,8 +1313,8 @@ cdef class PropFAID(PropInstanceID):
         Set the compatibility level for file format. Legal values are:
 
         - h5f.LIBVER_EARLIEST
-        - h5f.LIBVER_V18 (HDF5 1.10.2 or later)
-        - h5f.LIBVER_V110 (HDF5 1.10.2 or later)
+        - h5f.LIBVER_V18
+        - h5f.LIBVER_V110
         - h5f.LIBVER_V112 (HDF5 1.11.4 or later)
         - h5f.LIBVER_V114 (HDF5 1.13.0 or later)
         - h5f.LIBVER_LATEST
@@ -1346,8 +1346,8 @@ cdef class PropFAID(PropInstanceID):
         Get the compatibility level for file format. Returned values are from:
 
         - h5f.LIBVER_EARLIEST
-        - h5f.LIBVER_V18 (HDF5 1.10.2 or later)
-        - h5f.LIBVER_V110 (HDF5 1.10.2 or later)
+        - h5f.LIBVER_V18
+        - h5f.LIBVER_V110
         - h5f.LIBVER_V112 (HDF5 1.11.4 or later)
         - h5f.LIBVER_V114 (HDF5 1.13.0 or later)
         - h5f.LIBVER_LATEST
@@ -1761,7 +1761,7 @@ cdef class PropOCID(PropCreateID):
 
         max_compact -- maximum number of attributes to be stored in compact storage(default:8)
         must be greater than or equal to min_dense
-        min_dense  -- minmum number of attributes to be stored in dense storage(default:6)
+        min_dense  -- minimum number of attributes to be stored in dense storage(default:6)
 
         """
         H5Pset_attr_phase_change(self.id, max_compact, min_dense)

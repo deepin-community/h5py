@@ -1,7 +1,7 @@
 Index: h5py/h5py/tests/test_file2.py
 ===================================================================
---- h5py.orig/h5py/tests/test_file2.py	2023-07-10 00:03:15.763249742 +0200
-+++ h5py/h5py/tests/test_file2.py	2023-07-10 00:03:15.763249742 +0200
+--- h5py.orig/h5py/tests/test_file2.py	2024-12-05 17:29:35.923904313 +0100
++++ h5py/h5py/tests/test_file2.py	2024-12-05 17:29:35.919904288 +0100
 @@ -21,6 +21,8 @@
  import io
  import tempfile
@@ -11,7 +11,7 @@ Index: h5py/h5py/tests/test_file2.py
  
  
  def nfiles():
-@@ -207,6 +209,7 @@
+@@ -212,6 +214,7 @@
          f.create_dataset('test', data=list(range(12)))
          self.assertRaises(Exception, list, f['test'])
  

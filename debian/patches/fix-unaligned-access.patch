@@ -1,6 +1,22 @@
---- a/h5py/_conv.pyx
-+++ b/h5py/_conv.pyx
-@@ -869,8 +869,8 @@
+Index: h5py-3.10.0/h5py/_conv.pyx
+===================================================================
+--- h5py-3.10.0.orig/h5py/_conv.pyx
++++ h5py-3.10.0/h5py/_conv.pyx
+@@ -705,9 +705,10 @@ cdef int conv_vlen2ndarray(void* ipt,
+         vlen_t in_vlen0
+         size_t size, itemsize
+ 
+-    #Replaces the memcpy
+-    size = in_vlen0.len = in_vlen[0].len
+-    data = in_vlen0.ptr = in_vlen[0].ptr
++    memcpy(&size, &in_vlen[0].len, sizeof(size_t))
++    memcpy(&data, &in_vlen[0].ptr, sizeof(void*))
++    in_vlen0.len = size
++    in_vlen0.ptr = data
+ 
+     dims[0] = size
+     itemsize = H5Tget_size(outtype.id)
+@@ -869,8 +870,8 @@ cdef int conv_ndarray2vlen(void* ipt,
  
          H5Tconvert(intype.id, outtype.id, len, data, back_buf, H5P_DEFAULT)
  
